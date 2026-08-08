@@ -132,6 +132,7 @@ test('years 0 through 99 retain their literal year', () => {
   const year = createLocalDate(42, 0, 1)
   assert.equal(year.getFullYear(), 42)
 })
+
 test('years 0 through 99 preserve constructor overflow across year boundaries', () => {
   const nextYear = createLocalDate(42, 12, 1)
   assert.equal(nextYear.getFullYear(), 43)
@@ -158,8 +159,8 @@ test('selecting a boundary month clamps lower parts without reverting the month'
   assert.deepEqual(controller.snapshot.columns.months, [9, 10])
   assert.equal(controller.select('month', 10), true)
   assert.equal(controller.snapshot.parts.month, 10)
-  assert.ok(controller.value.getTime() <= maxDate.getTime())
-  assert.ok(controller.value.getTime() >= minDate.getTime())
+  assert.ok((controller.value?.getTime() ?? -Infinity) <= maxDate.getTime())
+  assert.ok((controller.value?.getTime() ?? Infinity) >= minDate.getTime())
 })
 
 test('cancel invalidates a pending WheelMotion completion', () => {
