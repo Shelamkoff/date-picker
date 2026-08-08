@@ -79,3 +79,5 @@ jobs:
           gh workflow run ci.yml --ref master
           gh workflow run pages.yml --ref master
           echo "Applied commit: ${{ steps.commit.outputs.sha }}"
+
+# Triggered after all archive parts were staged.
