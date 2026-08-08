@@ -20,7 +20,7 @@ interface RenderedItem extends WheelItem {
 }
 
 const WHEEL_ID_KEY = Symbol.for('@shelamkoff/date-picker/wheel-id')
-const SCROLL_SETTLE_DELAY = 120
+const SCROLL_SETTLE_DELAY = 180
 
 function nextWheelId(document: Document): number {
   const registry = document as Document & { [WHEEL_ID_KEY]?: number }
@@ -73,7 +73,7 @@ export class WheelColumn {
     )
 
     element.addEventListener('scroll', this.#handleScroll, { passive: true })
-    element.addEventListener('wheel', this.#beginUserInteraction, { passive: true })
+    element.addEventListener('wheel', this.#handleWheel, { passive: false })
     element.addEventListener('pointerdown', this.#beginUserInteraction)
     element.addEventListener('touchstart', this.#beginUserInteraction, { passive: true })
     element.addEventListener('keydown', this.#handleKeydown)
@@ -157,7 +157,7 @@ export class WheelColumn {
     this.#interactive = false
     this.cancelPendingSelection()
     this.element.removeEventListener('scroll', this.#handleScroll)
-    this.element.removeEventListener('wheel', this.#beginUserInteraction)
+    this.element.removeEventListener('wheel', this.#handleWheel)
     this.element.removeEventListener('pointerdown', this.#beginUserInteraction)
     this.element.removeEventListener('touchstart', this.#beginUserInteraction)
     this.element.removeEventListener('keydown', this.#handleKeydown)
@@ -232,30 +232,28 @@ export class WheelColumn {
     this.#programmaticTarget = target
     this.element.scrollTo({ top: target, behavior: 'auto' })
     this.#requestFrame(() => {
-      if (this.#programmaticTarget === target && Math.abs(this.element.scrollTop - target) <= 1) {
-        this.#programmaticTarget = null
-      }
+      if (this.#programmaticTarget === target) this.#programmaticTarget = null
     })
+  }
+
+  #normalizeScrollTop(scrollTop: number): number {
+    if (!this.#loop || this.#items.length <= 1) return scrollTop
+    const cycleHeight = this.#items.length * this.#itemHeight
+    let target = scrollTop
+    while (target < cycleHeight) target += cycleHeight
+    while (target >= cycleHeight * 2) target -= cycleHeight
+    return target
   }
 
   #rebaseLoopScrollPosition(): boolean {
     if (!this.#loop || this.#items.length <= 1) return false
 
-    const cycleHeight = this.#items.length * this.#itemHeight
     const current = this.element.scrollTop
-    let target = current
-
-    while (target < cycleHeight) target += cycleHeight
-    while (target >= cycleHeight * 2) target -= cycleHeight
+    const target = this.#normalizeScrollTop(current)
     if (Math.abs(target - current) <= 1) return false
 
-    this.#programmaticTarget = target
+    this.#programmaticTarget = null
     this.element.scrollTop = target
-    this.#requestFrame(() => {
-      if (this.#programmaticTarget === target && Math.abs(this.element.scrollTop - target) <= 1) {
-        this.#programmaticTarget = null
-      }
-    })
     return true
   }
 
@@ -293,16 +291,29 @@ export class WheelColumn {
   #beginUserInteraction = (): void => {
     if (!this.#interactive || this.#destroyed) return
     this.cancelPendingSelection()
-    this.focus()
+    if (this.#document.activeElement !== this.element) this.focus()
+  }
+
+  #handleWheel = (event: WheelEvent): void => {
+    if (!this.#interactive || this.#destroyed || event.ctrlKey || event.deltaY === 0) return
+    event.preventDefault()
+    this.#beginUserInteraction()
+
+    const scale = event.deltaMode === 1
+      ? this.#itemHeight
+      : event.deltaMode === 2
+        ? this.element.clientHeight
+        : 1
+    const target = this.#normalizeScrollTop(this.element.scrollTop + event.deltaY * scale)
+    this.element.scrollTop = target
+    this.#scheduleSettle()
   }
 
   #handleScroll = (): void => {
     if (!this.#interactive || this.#destroyed) return
 
     if (this.#programmaticTarget !== null) {
-      if (Math.abs(this.element.scrollTop - this.#programmaticTarget) <= 1) {
-        this.#programmaticTarget = null
-      }
+      this.#programmaticTarget = null
       return
     }
 
@@ -327,7 +338,7 @@ export class WheelColumn {
   }
 
   #settleSelection(): void {
-    if (!this.#interactive || this.#programmaticTarget !== null || this.#items.length === 0) return
+    if (!this.#interactive || this.#items.length === 0) return
     const rendered = this.#renderedItems()
     const rawIndex = Math.round(this.element.scrollTop / this.#itemHeight)
     const index = nearestEnabledIndex(rendered, rawIndex)
@@ -339,8 +350,12 @@ export class WheelColumn {
 
     if (this.#loop && this.#items.length > 1) {
       const centeredIndex = this.#renderIndexForSource(item.sourceIndex)
-      const currentIndex = Math.round(this.element.scrollTop / this.#itemHeight)
-      if (currentIndex !== centeredIndex) this.#scrollToValue()
+      const centeredTop = centeredIndex * this.#itemHeight
+      if (Math.abs(this.element.scrollTop - centeredTop) > 1) this.#scrollToValue()
+    }
+    else {
+      const alignedTop = index * this.#itemHeight
+      if (Math.abs(this.element.scrollTop - alignedTop) > 1) this.#scrollToValue()
     }
     this.#updateSelectionState()
 
