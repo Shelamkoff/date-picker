@@ -183,5 +183,3 @@ test('enabling reduced motion during a snap completes it once', () => {
   assert.equal(motion.position, 40)
   assert.equal(motion.phase, 'idle')
 })
-
-// Verification trigger: the workflow itself prepares the patched branch before running the matrix.
