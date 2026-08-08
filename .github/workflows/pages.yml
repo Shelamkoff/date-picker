@@ -39,6 +39,8 @@ jobs:
           cp index.html _site/index.html
           cp src/style.css _site/style.css
           cp -R dist _site/dist
+          sed -i "s#\./style\.css#./style.css?v=${GITHUB_SHA}#g" _site/index.html
+          sed -i "s#\./dist/index\.js#./dist/index.js?v=${GITHUB_SHA}#g" _site/index.html
           touch _site/.nojekyll
 
       - name: Configure Pages

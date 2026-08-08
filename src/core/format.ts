@@ -1,6 +1,24 @@
+const FORMATTER_CACHE_LIMIT = 32
 const dateFormatterCache = new Map<string, Intl.DateTimeFormat>()
-const monthFormatterCache = new Map<string, Intl.DateTimeFormat>()
+const monthLabelCache = new Map<string, readonly string[]>()
 const numberFormatterCache = new Map<string, Intl.NumberFormat>()
+
+function cached<K, V>(cache: Map<K, V>, key: K, create: () => V): V {
+  const existing = cache.get(key)
+  if (existing !== undefined) {
+    cache.delete(key)
+    cache.set(key, existing)
+    return existing
+  }
+
+  const value = create()
+  cache.set(key, value)
+  if (cache.size > FORMATTER_CACHE_LIMIT) {
+    const oldest = cache.keys().next().value
+    if (oldest !== undefined) cache.delete(oldest)
+  }
+  return value
+}
 
 export function pad2(value: number): string {
   return String(value).padStart(2, '0')
@@ -13,34 +31,30 @@ export function formatDatePickerValue(
 ): string {
   const era = Date.prototype.getFullYear.call(value) <= 0
   const key = `${locale}|${enableTime ? 'time' : 'date'}|${era ? 'era' : 'common'}`
-  let formatter = dateFormatterCache.get(key)
-  if (!formatter) {
-    formatter = new Intl.DateTimeFormat(locale, {
-      calendar: 'gregory',
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      ...(era ? { era: 'short' } : {}),
-      ...(enableTime ? { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' as const } : {}),
-    })
-    dateFormatterCache.set(key, formatter)
-  }
+  const formatter = cached(dateFormatterCache, key, () => new Intl.DateTimeFormat(locale, {
+    calendar: 'gregory',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    ...(era ? { era: 'short' } : {}),
+    ...(enableTime ? { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' as const } : {}),
+  }))
   return formatter.format(value)
 }
 
 export function createMonthFormatter(locale = 'en-US'): (month: number) => string {
-  let formatter = monthFormatterCache.get(locale)
-  if (!formatter) {
-    formatter = new Intl.DateTimeFormat(locale, { calendar: 'gregory', month: 'short' })
-    monthFormatterCache.set(locale, formatter)
-  }
-  return month => {
-    const date = new Date(0)
-    date.setFullYear(2000, month - 1, 1)
-    date.setHours(12, 0, 0, 0)
-    const label = formatter.format(date).replace(/\.$/, '')
-    return label.charAt(0).toLocaleUpperCase(locale) + label.slice(1)
-  }
+  const labels = cached(monthLabelCache, locale, () => {
+    const formatter = new Intl.DateTimeFormat(locale, { calendar: 'gregory', month: 'short' })
+    return Array.from({ length: 12 }, (_, index) => {
+      const date = new Date(0)
+      date.setFullYear(2000, index, 1)
+      date.setHours(12, 0, 0, 0)
+      const label = formatter.format(date).replace(/\.$/, '')
+      return label.charAt(0).toLocaleUpperCase(locale) + label.slice(1)
+    })
+  })
+
+  return month => labels[Math.trunc(month) - 1] ?? String(month)
 }
 
 export function createNumberFormatter(
@@ -49,13 +63,9 @@ export function createNumberFormatter(
   useGrouping = false,
 ): (value: number) => string {
   const key = `${locale}|${minimumIntegerDigits}|${useGrouping ? 'group' : 'plain'}`
-  let formatter = numberFormatterCache.get(key)
-  if (!formatter) {
-    formatter = new Intl.NumberFormat(locale, {
-      minimumIntegerDigits,
-      useGrouping,
-    })
-    numberFormatterCache.set(key, formatter)
-  }
+  const formatter = cached(numberFormatterCache, key, () => new Intl.NumberFormat(locale, {
+    minimumIntegerDigits,
+    useGrouping,
+  }))
   return value => formatter.format(value)
 }
