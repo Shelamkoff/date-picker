@@ -173,6 +173,7 @@ assert.ok(
 )
 
 // A looping wheel consumes the wheel gesture rather than moving the page.
+await openPicker('audit-loop')
 const loopWheel = page.locator('#audit-loop .sdp-wheel[aria-label="Day"]')
 await loopWheel.scrollIntoViewIfNeeded()
 const loopBox = await loopWheel.boundingBox()
