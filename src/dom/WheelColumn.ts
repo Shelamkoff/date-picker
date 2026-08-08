@@ -237,12 +237,12 @@ export class WheelColumn {
   }
 
   #normalizeScrollTop(scrollTop: number): number {
+    if (!Number.isFinite(scrollTop)) return this.element.scrollTop
     if (!this.#loop || this.#items.length <= 1) return scrollTop
+
     const cycleHeight = this.#items.length * this.#itemHeight
-    let target = scrollTop
-    while (target < cycleHeight) target += cycleHeight
-    while (target >= cycleHeight * 2) target -= cycleHeight
-    return target
+    const offset = ((scrollTop - cycleHeight) % cycleHeight + cycleHeight) % cycleHeight
+    return cycleHeight + offset
   }
 
   #rebaseLoopScrollPosition(): boolean {
@@ -291,11 +291,19 @@ export class WheelColumn {
   #beginUserInteraction = (): void => {
     if (!this.#interactive || this.#destroyed) return
     this.cancelPendingSelection()
-    if (this.#document.activeElement !== this.element) this.focus()
+    if (activeElementFor(this.element) !== this.element) this.focus()
   }
 
   #handleWheel = (event: WheelEvent): void => {
-    if (!this.#interactive || this.#destroyed || event.ctrlKey || event.deltaY === 0) return
+    if (
+      !this.#interactive
+      || this.#destroyed
+      || event.ctrlKey
+      || !Number.isFinite(event.deltaY)
+      || event.deltaY === 0
+    ) {
+      return
+    }
     event.preventDefault()
     this.#beginUserInteraction()
 
@@ -359,9 +367,6 @@ export class WheelColumn {
     }
     this.#updateSelectionState()
 
-    // DatePicker may synchronously re-render this wheel from inside onChange.
-    // Notify only after all local DOM work is complete to avoid stale work
-    // fighting the user's active scroll gesture.
     if (changed) this.#onChange(item.value)
   }
 
@@ -460,6 +465,15 @@ export class WheelColumn {
     const cycle = this.#loop && this.#items.length > 1 ? 1 : 0
     this.element.setAttribute('aria-activedescendant', `${this.#baseId}-option-${cycle}-${sourceIndex}`)
   }
+}
+
+function activeElementFor(element: Element): Element | null {
+  const root = element.getRootNode?.()
+  if (root && typeof root === 'object' && 'activeElement' in root) {
+    const active = (root as Document | ShadowRoot).activeElement
+    if (active) return active
+  }
+  return element.ownerDocument?.activeElement ?? null
 }
 
 function findOptionFromEvent(event: MouseEvent, root: HTMLElement): HTMLElement | null {
