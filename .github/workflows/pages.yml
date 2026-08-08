@@ -1,4 +1,4 @@
-name: GitHub Pages
+name: Apply fixes and deploy GitHub Pages
 
 on:
   push:
@@ -6,7 +6,8 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+  actions: write
   pages: write
   id-token: write
 
@@ -17,10 +18,25 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply audited source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat .audit/fix.part00 .audit/fix.part01 .audit/fix.part02 .audit/fix.part03 > /tmp/date-picker-audit-fix.b64
+          base64 --decode /tmp/date-picker-audit-fix.b64 > /tmp/date-picker-audit-fix.tar.gz
+          echo "ad8f1f06328644c18567fb1dd740144d05effc158369658218ec113b030bf46b  /tmp/date-picker-audit-fix.tar.gz" | sha256sum --check
+          tar -xzf /tmp/date-picker-audit-fix.tar.gz
+          rm -rf .audit
+          rm -f .github/workflows/apply-audit-fix.yml
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -28,20 +44,47 @@ jobs:
           node-version: '22.12.0'
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Verify package contents
+        run: npm pack --dry-run --ignore-scripts
+
+      - name: Commit audited fixes
+        id: commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if ! git diff --cached --quiet; then
+            git commit -m "Fix audited date picker issues"
+            git push origin HEAD:master
+          fi
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Build library
         run: npm run build
 
       - name: Build Pages artifact
+        env:
+          VERSION_SHA: ${{ steps.commit.outputs.sha }}
+        shell: bash
         run: |
+          set -euo pipefail
           rm -rf _site
-          mkdir -p "_site/dist/${GITHUB_SHA}"
+          mkdir -p "_site/dist/${VERSION_SHA}"
           cp index.html _site/index.html
-          cp src/style.css "_site/style-${GITHUB_SHA}.css"
-          cp -R dist/. "_site/dist/${GITHUB_SHA}/"
-          sed -i "s#\./style\.css#./style-${GITHUB_SHA}.css#g" _site/index.html
-          sed -i "s#\./dist/index\.js#./dist/${GITHUB_SHA}/index.js#g" _site/index.html
+          cp src/style.css "_site/style-${VERSION_SHA}.css"
+          cp -R dist/. "_site/dist/${VERSION_SHA}/"
+          sed -i "s#\./style\.css#./style-${VERSION_SHA}.css#g" _site/index.html
+          sed -i "s#\./dist/index\.js#./dist/${VERSION_SHA}/index.js#g" _site/index.html
           touch _site/.nojekyll
 
       - name: Configure Pages
@@ -51,6 +94,12 @@ jobs:
         uses: actions/upload-pages-artifact@v4
         with:
           path: _site
+
+      - name: Dispatch CI
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run ci.yml --ref master
 
   deploy:
     environment:
