@@ -1,89 +1,101 @@
-# Date Picker
+# @shelamkoff/date-picker
 
-A dependency-free, framework-agnostic date and time picker built in TypeScript, with a thin Vue 3 adapter.
+A dependency-free, framework-agnostic date and time picker written in TypeScript.
 
 **Live demo:** https://shelamkoff.github.io/date-picker/
 
-## Packages
+## Features
 
-- `@shelamkoff/date-picker` — vanilla DOM widget and headless core (`/core`), with zero runtime dependencies.
-- `@shelamkoff/vue-date-picker` — thin Vue 3.5+ wrapper around the vanilla widget.
-- `@shelamkoff/ui-kit` — optional CSS-only design tokens and primitives used as a compatible visual layer; the picker does not depend on it.
+- zero runtime dependencies;
+- standalone DOM widget and DOM-independent core;
+- date-only and date-time modes;
+- min/max constraints;
+- configurable minute step;
+- local civil-time handling, including DST gaps and repeated wall-clock times;
+- keyboard interaction and accessible DOM attributes;
+- Shadow DOM-friendly event and focus behavior;
+- dark defaults, built-in light theme and CSS custom-property theming.
 
-The picker is proleptic-Gregorian, handles DST gaps and repeated wall-clock minutes, supports min/max constraints, date-only and date-time modes, keyboard interaction, Shadow DOM event/focus behavior, and configurable CSS custom properties.
-
-## Vanilla JavaScript / TypeScript
+## Installation
 
 ```bash
-pnpm add @shelamkoff/date-picker
+npm install @shelamkoff/date-picker
 ```
+
+## Usage
 
 ```ts
 import { DatePicker } from '@shelamkoff/date-picker'
 import '@shelamkoff/date-picker/style.css'
 
-const picker = new DatePicker(document.querySelector('#date')!, {
-  clearable: true,
-  showNow: true,
+const host = document.querySelector<HTMLElement>('#date')!
+
+const picker = new DatePicker(host, {
+  value: null,
   enableTime: true,
   minuteStep: 5,
+  clearable: true,
+  showNow: true,
   onChange(value, reason) {
     console.log(value, reason)
   },
 })
 ```
 
-The DOM-independent controller is available from `@shelamkoff/date-picker/core`.
+The picker owns only the DOM it creates inside the supplied host. Calling `destroy()` removes that subtree and releases its listeners.
 
-## Vue 3
+## Headless core
 
-```bash
-pnpm add @shelamkoff/vue-date-picker
-```
+The DOM-independent controller is exported from `@shelamkoff/date-picker/core`:
 
 ```ts
-import '@shelamkoff/vue-date-picker/style.css'
+import { createDatePicker } from '@shelamkoff/date-picker/core'
+
+const controller = createDatePicker({
+  enableTime: true,
+  minuteStep: 5,
+})
+
+controller.open()
+console.log(controller.snapshot.columns)
 ```
 
-```vue
-<script setup lang="ts">
-import { shallowRef } from 'vue'
-import { DatePicker } from '@shelamkoff/vue-date-picker'
+## Localization
 
-const value = shallowRef<Date | null>(null)
-</script>
+The default locale is `en-US`. The picker uses the Gregorian calendar and lets you override all user-facing labels.
 
-<template>
-  <DatePicker
-    v-model="value"
-    clearable
-    show-now
-    enable-time
-    :minute-step="5"
-  />
-</template>
+```ts
+new DatePicker(host, {
+  locale: 'ru-RU',
+  placeholder: 'Выберите дату',
+  nowLabel: 'Сейчас',
+  clearLabel: 'Очистить дату',
+  pickerLabel: 'Выбор даты',
+  dayLabel: 'День',
+  monthLabel: 'Месяц',
+  yearLabel: 'Год',
+  hourLabel: 'Часы',
+  minuteLabel: 'Минуты',
+})
 ```
 
-## Styling
+## Theming
 
-The standalone widget exposes namespaced `--sdp-*` custom properties and includes dark defaults plus an explicit light theme.
+The default palette is dark. Add `sdp-theme-light` or `data-sdp-theme="light"` to the host to use the built-in light palette:
 
 ```html
-<div id="picker" class="sdp-theme-light"></div>
+<div id="date" class="sdp-theme-light"></div>
 ```
 
-The optional UI kit exposes `--sui-*` tokens. The picker can use those tokens as fallbacks, but it remains fully functional without the UI kit.
+The stylesheet exposes namespaced `--sdp-*` custom properties for application-level customization.
 
 ## Development
 
 ```bash
-corepack enable
-pnpm install
-pnpm verify
-pnpm demo:build
+npm install
+npm run typecheck
+npm run build
 ```
-
-The portable verification suite covers timezone transitions, DST gaps/folds, extreme JavaScript `Date` boundaries, advertised selectable values, DOM/wheel lifecycle races, SSR-safe imports, package exports, Shadow DOM behavior and the Vue bridge.
 
 ## License
 

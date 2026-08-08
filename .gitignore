@@ -1,6 +1,0 @@
-node_modules/
-dist/
-packages/*/dist/
-.verification/
-*.tgz
-_site/
