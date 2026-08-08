@@ -368,14 +368,22 @@ export class DatePicker {
 
   #selectPart(part: DatePart, value: number): void {
     if (this.#destroyed || this.#view.disabled || !this.#controller.isOpen) return
-    this.#cancelWheelGestures()
     if (!this.#controller.select(part, value)) {
-      this.#recenterOpenWheels()
+      this.#wheelForPart(part).recenter()
       return
     }
     this.#render()
-    this.#recenterOpenWheels()
     this.#publishChange(this.#controller.value, 'select')
+  }
+
+  #wheelForPart(part: DatePart): WheelColumn {
+    switch (part) {
+      case 'day': return this.#dayWheel
+      case 'month': return this.#monthWheel
+      case 'year': return this.#yearWheel
+      case 'hour': return this.#hourWheel
+      case 'minute': return this.#minuteWheel
+    }
   }
 
   #assertAlive(): void {
