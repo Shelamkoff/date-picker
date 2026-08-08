@@ -40,8 +40,10 @@ jobs:
           node-version: '22.12.0'
           cache: npm
       - run: npm ci --no-audit --no-fund
-      - name: Run publish lifecycle and create tarball
-        run: npm pack --json > /tmp/npm-pack.json
+      - name: Run publish lifecycle
+        run: npm test
+      - name: Create machine-readable tarball report
+        run: npm pack --ignore-scripts --json > /tmp/npm-pack.json
       - name: Validate packed file set
         run: |
           node <<'NODE'
