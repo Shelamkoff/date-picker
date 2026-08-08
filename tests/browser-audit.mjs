@@ -46,10 +46,7 @@ async function createPicker(id, source) {
 }
 
 async function openPicker(id) {
-  const popover = page.locator(`#${id} .sdp-datepicker__popover`)
-  if (await popover.evaluate(node => node.hidden)) {
-    await page.locator(`#${id} .sdp-datepicker__trigger`).click()
-  }
+  await page.evaluate(id => window.__datePickerAudit.pickers[id].open(), id)
   await page.waitForFunction(id => {
     const current = document.querySelector(`#${id} .sdp-datepicker__popover`)
     return current && !current.hidden
