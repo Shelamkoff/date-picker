@@ -140,7 +140,22 @@ test('controller snapshots remain internally consistent across randomized bounds
       if (!values.length) continue
       const chosen = values[Math.floor(values.length / 2)]
       assert.equal(controller.select(part, chosen), true)
-      assert.equal(controller.snapshot.parts[part], chosen)
+      const after = controller.snapshot
+      assert.equal(after.parts[part], chosen, JSON.stringify({
+        index,
+        part,
+        chosen,
+        beforeParts: current.parts,
+        beforeColumns: current.columns,
+        afterParts: after.parts,
+        afterColumns: after.columns,
+        enableTime,
+        step,
+        supplied: supplied.toISOString(),
+        minDate: minDate.toISOString(),
+        maxDate: maxDate.toISOString(),
+        value: controller.value?.toISOString(),
+      }))
       const value = controller.value
       assert.ok(value && isValidDate(value))
       assert.ok(!bounds.min || value.getTime() >= bounds.min.getTime())
