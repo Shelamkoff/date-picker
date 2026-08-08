@@ -1,0 +1,35 @@
+name: Verify final GitHub Pages deployment
+
+on:
+  push:
+    branches: [pages-final-check]
+    paths:
+      - .github/workflows/verify-pages-final.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      EXPECTED_SHA: 343e490b1638b1782635dc86c430db9efaf78386
+    steps:
+      - name: Wait for final Pages deployment
+        run: |
+          for attempt in {1..90}; do
+            if curl --fail --silent --show-error --location https://shelamkoff.github.io/date-picker/ -o /tmp/date-picker-live.html \
+              && grep -F "./dist/${EXPECTED_SHA}/index.js" /tmp/date-picker-live.html \
+              && grep -F "./style-${EXPECTED_SHA}.css" /tmp/date-picker-live.html; then
+              curl --fail --silent --show-error --location "https://shelamkoff.github.io/date-picker/dist/${EXPECTED_SHA}/index.js" -o /tmp/date-picker-index.js
+              curl --fail --silent --show-error --location "https://shelamkoff.github.io/date-picker/style-${EXPECTED_SHA}.css" -o /tmp/date-picker-style.css
+              grep -F "DatePicker" /tmp/date-picker-index.js
+              grep -F ".sdp-datepicker" /tmp/date-picker-style.css
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "The final Pages deployment did not become visible in time"
+          cat /tmp/date-picker-live.html || true
+          exit 1
