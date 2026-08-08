@@ -1,0 +1,41 @@
+name: Patch final browser audit
+
+on:
+  push:
+    branches: [final-library-check]
+    paths:
+      - .github/workflows/patch-final-audit.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Wait for theme transitions before reading rendered colors
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          path = Path('tests/final-browser-audit.mjs')
+          text = path.read_text()
+          old = "await page.waitForFunction(() => document.querySelector('#hero-picker')?.classList.contains('sdp-theme-light'))\nconst lightTheme = await readThemeState(page)\n"
+          new = "await page.waitForFunction(() => document.querySelector('#hero-picker')?.classList.contains('sdp-theme-light'))\nawait page.waitForTimeout(180)\nconst lightTheme = await readThemeState(page)\n"
+          if old not in text:
+              raise SystemExit('light-theme transition target not found')
+          text = text.replace(old, new, 1)
+          old = "await page.waitForFunction(() => !document.querySelector('#hero-picker')?.classList.contains('sdp-theme-light'))\n\n// Baseline semantics"
+          new = "await page.waitForFunction(() => !document.querySelector('#hero-picker')?.classList.contains('sdp-theme-light'))\nawait page.waitForTimeout(180)\n\n// Baseline semantics"
+          if old not in text:
+              raise SystemExit('dark-theme transition target not found')
+          path.write_text(text.replace(old, new, 1))
+          PY
+      - name: Commit audit correction
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add tests/final-browser-audit.mjs
+          git diff --cached --check
+          git commit -m "Wait for theme transition in browser audit"
+          git push
