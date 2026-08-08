@@ -1,0 +1,16 @@
+{
+  "name": "@shelamkoff/date-picker-workspace",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.9.0",
+  "workspaces": ["packages/*"],
+  "scripts": {
+    "build": "pnpm --filter @shelamkoff/date-picker build && pnpm --filter @shelamkoff/vue-date-picker build",
+    "typecheck": "pnpm --filter @shelamkoff/date-picker typecheck && pnpm --filter @shelamkoff/vue-date-picker typecheck",
+    "demo:build": "pnpm --filter @shelamkoff/date-picker build && node scripts/build-pages.mjs",
+    "verify": "pnpm typecheck && pnpm build"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  }
+}

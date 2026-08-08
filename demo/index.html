@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#101213">
+  <title>Date Picker — standalone TypeScript date & time picker</title>
+  <meta name="description" content="A dependency-free TypeScript date and time picker with a headless core and a thin Vue adapter.">
+  <link rel="stylesheet" href="./assets/date-picker/style.css">
+  <link rel="stylesheet" href="./demo.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="topbar">
+      <a class="brand" href="./" aria-label="Date Picker home">
+        <span class="brand-mark">D</span>
+        <span>Date Picker</span>
+      </a>
+      <div class="topbar-actions">
+        <button id="theme-toggle" class="topbar-button" type="button">Light theme</button>
+        <a class="topbar-button" href="https://github.com/Shelamkoff/date-picker">GitHub</a>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">TypeScript · zero runtime dependencies</p>
+          <h1>A wheel date picker that stays correct at the edges.</h1>
+          <p class="lead">Vanilla DOM widget, headless core and a thin Vue 3 adapter. Handles min/max bounds, DST gaps and folds, keyboard input, Shadow DOM and extreme JavaScript dates.</p>
+          <div class="hero-actions">
+            <a class="primary-link" href="#playground">Try the demo</a>
+            <a class="secondary-link" href="https://github.com/Shelamkoff/date-picker#vanilla-javascript--typescript">Installation</a>
+          </div>
+        </div>
+        <div class="hero-card">
+          <div class="hero-card-label">Live picker</div>
+          <div id="hero-picker"></div>
+          <div class="value-row">
+            <span>Selected</span>
+            <code id="hero-value">null</code>
+          </div>
+        </div>
+      </section>
+
+      <section class="metrics" aria-label="Highlights">
+        <div><strong>0</strong><span>runtime dependencies</span></div>
+        <div><strong>3</strong><span>public layers: DOM, core, Vue</span></div>
+        <div><strong>418</strong><span>IANA zones swept in verification</span></div>
+        <div><strong>MIT</strong><span>open source license</span></div>
+      </section>
+
+      <section id="playground" class="section-grid">
+        <div class="section-copy">
+          <p class="eyebrow">Playground</p>
+          <h2>One API, date-only or date-time.</h2>
+          <p>Toggle the options. The widget is rebuilt here only to make the configuration changes obvious; normal applications can update an existing instance through <code>update()</code>.</p>
+          <div class="control-list">
+            <label class="switch-row"><span>Time</span><input id="opt-time" type="checkbox" checked></label>
+            <label class="switch-row"><span>Clear button</span><input id="opt-clear" type="checkbox" checked></label>
+            <label class="switch-row"><span>Now button</span><input id="opt-now" type="checkbox" checked></label>
+            <label class="switch-row"><span>Loop wheels</span><input id="opt-loop" type="checkbox"></label>
+            <label class="select-row"><span>Minute step</span><select id="opt-step"><option>1</option><option selected>5</option><option>10</option><option>15</option><option>30</option></select></label>
+          </div>
+        </div>
+        <div class="demo-panel">
+          <div id="playground-picker"></div>
+          <div class="value-row"><span>Value</span><code id="playground-value">null</code></div>
+        </div>
+      </section>
+
+      <section class="section-grid reverse">
+        <div class="demo-panel light-surface">
+          <div id="range-picker" class="sdp-theme-light"></div>
+          <div class="value-row"><span>Range</span><code>today → +30 days</code></div>
+        </div>
+        <div class="section-copy">
+          <p class="eyebrow">Constraints</p>
+          <h2>Bounds shape every wheel.</h2>
+          <p>Years, months, days, hours and minutes are derived from the actual allowed interval. Invalid options disappear instead of being accepted and clamped later.</p>
+        </div>
+      </section>
+
+      <section class="code-section">
+        <div class="section-copy compact">
+          <p class="eyebrow">Vanilla</p>
+          <h2>Small public surface.</h2>
+        </div>
+        <pre><code>import { DatePicker } from '@shelamkoff/date-picker'
+import '@shelamkoff/date-picker/style.css'
+
+const picker = new DatePicker(host, {
+  enableTime: true,
+  minuteStep: 5,
+  clearable: true,
+  showNow: true,
+  onChange(value, reason) {
+    console.log(value, reason)
+  },
+})</code></pre>
+      </section>
+
+      <section class="code-section">
+        <div class="section-copy compact">
+          <p class="eyebrow">Vue 3</p>
+          <h2>A thin adapter, not a second picker.</h2>
+        </div>
+        <pre><code>&lt;script setup lang="ts"&gt;
+import { shallowRef } from 'vue'
+import { DatePicker } from '@shelamkoff/vue-date-picker'
+import '@shelamkoff/vue-date-picker/style.css'
+
+const value = shallowRef&lt;Date | null&gt;(null)
+&lt;/script&gt;
+
+&lt;template&gt;
+  &lt;DatePicker v-model="value" enable-time clearable show-now /&gt;
+&lt;/template&gt;</code></pre>
+      </section>
+    </main>
+
+    <footer>
+      <span>MIT licensed</span>
+      <a href="https://github.com/Shelamkoff/date-picker">Source on GitHub</a>
+    </footer>
+  </div>
+  <script type="module" src="./demo.js"></script>
+</body>
+</html>
