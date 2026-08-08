@@ -46,10 +46,13 @@ async function createPicker(id, source) {
 }
 
 async function openPicker(id) {
-  await page.locator(`#${id} .sdp-datepicker__trigger`).click()
+  const popover = page.locator(`#${id} .sdp-datepicker__popover`)
+  if (await popover.evaluate(node => node.hidden)) {
+    await page.locator(`#${id} .sdp-datepicker__trigger`).click()
+  }
   await page.waitForFunction(id => {
-    const popover = document.querySelector(`#${id} .sdp-datepicker__popover`)
-    return popover && !popover.hidden
+    const current = document.querySelector(`#${id} .sdp-datepicker__popover`)
+    return current && !current.hidden
   }, id)
 }
 
