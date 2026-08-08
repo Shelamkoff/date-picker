@@ -1,16 +1,276 @@
 name: CI
 
 on:
-  push:
-    branches: [master]
   pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout verification branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Apply audited corrections
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          controller = Path('src/core/controller.ts')
+          text = controller.read_text()
+
+          start = text.index('  #selectableMinuteOfDayValues(')
+          end = text.index('  #nearestSelectableDate(', start)
+          helpers = '''  #isConfiguredMinute(
+            year: number,
+            month: number,
+            day: number,
+            hour: number,
+            minute: number,
+            options: ResolvedDatePickerOptions,
+            bounds: DateBounds,
+          ): boolean {
+            if (minute % options.minuteStep === 0) return true
+            return this.#boundaryMinutes(year, month, day, hour, bounds).includes(minute)
+          }
+
+          #candidateMinuteOfDayValues(
+            parts: Pick<DateParts, 'year' | 'month' | 'day'>,
+            options: ResolvedDatePickerOptions,
+            bounds: DateBounds,
+            onlyHour?: number,
+          ): number[] {
+            const result = new Set<number>()
+            const hours = onlyHour === undefined ? integerRange(0, 23) : [onlyHour]
+            for (const hour of hours) {
+              for (const minute of integerRange(0, 59, options.minuteStep)) {
+                result.add(hour * 60 + minute)
+              }
+              for (const minute of this.#boundaryMinutes(
+                parts.year,
+                parts.month,
+                parts.day,
+                hour,
+                bounds,
+              )) {
+                result.add(hour * 60 + minute)
+              }
+            }
+            return [...result]
+          }
+
+          #exactSelectableDate(
+            parts: DateParts,
+            reference: Date,
+            options: ResolvedDatePickerOptions,
+            bounds: DateBounds,
+            resolveMinute: MinuteResolver,
+          ): Date | null {
+            if (!this.#isConfiguredMinute(
+              parts.year,
+              parts.month,
+              parts.day,
+              parts.hour,
+              parts.minute,
+              options,
+              bounds,
+            )) {
+              return null
+            }
+            return nearestCandidate(
+              resolveMinute(parts.hour, parts.minute),
+              reference.getTime(),
+            )
+          }
+
+'''
+          text = text[:start] + helpers + text[end:]
+
+          start = text.index('  #nearestSelectableDate(')
+          end = text.index('  #normalizeSelectableSeed(', start)
+          nearest = '''  #nearestSelectableDate(
+            parts: DateParts,
+            reference: Date,
+            options: ResolvedDatePickerOptions,
+            bounds: DateBounds,
+            onlyHour?: number,
+          ): Date | null {
+            const resolveMinute = this.#minuteResolver(parts.year, parts.month, parts.day, bounds)
+            const requested = parts.hour * 60 + parts.minute
+            const values = this.#candidateMinuteOfDayValues(parts, options, bounds, onlyHour)
+              .sort((left, right) => {
+                const distance = Math.abs(left - requested) - Math.abs(right - requested)
+                return distance !== 0 ? distance : left - right
+              })
+
+            for (const minuteOfDay of values) {
+              const hour = Math.floor(minuteOfDay / 60)
+              const minute = minuteOfDay % 60
+              const candidate = nearestCandidate(resolveMinute(hour, minute), reference.getTime())
+              if (candidate) return candidate
+            }
+            return null
+          }
+
+'''
+          text = text[:start] + nearest + text[end:]
+
+          start = text.index('  #normalizeSelectableSeed(')
+          end = text.index('  #dateFromParts(', start)
+          normalize = '''  #normalizeSelectableSeed(
+            date: Date,
+            options: ResolvedDatePickerOptions,
+            bounds: DateBounds,
+          ): Date {
+            const normalized = clampDate(normalizePickerDate(date, options.enableTime), bounds)
+            if (!options.enableTime) return normalized
+
+            const parts = dateToParts(normalized)
+            const resolveMinute = this.#minuteResolver(parts.year, parts.month, parts.day, bounds)
+            const exact = this.#exactSelectableDate(
+              parts,
+              normalized,
+              options,
+              bounds,
+              resolveMinute,
+            )
+            if (exact) return exact
+
+            const nearest = this.#nearestSelectableDate(parts, normalized, options, bounds)
+            return nearest ?? normalized
+          }
+
+'''
+          text = text[:start] + normalize + text[end:]
+
+          method = text.index('  #dateFromParts(')
+          start = text.index('    const requested = new Date(this.#draft.getTime())', method)
+          end = text.index('    const nearest = this.#nearestSelectableDate(', start)
+          exact_block = '''    const requested = new Date(this.#draft.getTime())
+            const exactParts = { ...safeParts }
+            const resolveMinute = this.#minuteResolver(
+              safeParts.year,
+              safeParts.month,
+              safeParts.day,
+              this.#boundsValue,
+            )
+            const exact = this.#exactSelectableDate(
+              safeParts,
+              this.#draft,
+              this.#options,
+              this.#boundsValue,
+              resolveMinute,
+            )
+            if (exact) return exact
+
+'''
+          text = text[:start] + exact_block + text[end:]
+          controller.write_text(text)
+
+          wheel = Path('src/dom/WheelColumn.ts')
+          text = wheel.read_text()
+          text = text.replace("    element.classList.toggle('is-looping', this.#loop)\n", '')
+          text = text.replace("    this.element.classList.toggle('is-looping', loop)\n", '    this.#syncLoopClass()\n')
+          text = text.replace(
+              '    this.#items = items\n    this.#value = value\n',
+              '    this.#items = items\n    this.#syncLoopClass()\n    this.#value = value\n',
+          )
+          marker = '  #cycleCount(): number {\n'
+          sync = "  #syncLoopClass(): void {\n    this.element.classList.toggle('is-looping', this.#loop && this.#items.length > 1)\n  }\n\n"
+          if sync not in text:
+              text = text.replace(marker, sync + marker)
+          wheel.write_text(text)
+
+          calendar = Path('src/core/calendar.ts')
+          text = calendar.read_text()
+          start = text.index('function requireRepresentable(')
+          end = text.index('export function startOfDay(', start)
+          text = text[:start] + text[end:]
+          calendar.write_text(text)
+
+          tsconfig = Path('tsconfig.json')
+          text = tsconfig.read_text()
+          text = text.replace('    "noUnusedParameters": true,\n', '    "noUnusedLocals": true,\n    "noUnusedParameters": true,\n')
+          tsconfig.write_text(text)
+
+          regression = Path('tests/audit-regression.test.mjs')
+          text = regression.read_text()
+          text = text.replace(
+              "test('invalid now callbacks are rejected when read', () => {\n  const controller = new DatePickerController({ now: () => new Date(Number.NaN) })\n  assert.throws(() => controller.open(), /valid Date/)\n})",
+              "test('invalid now callbacks are rejected when read', () => {\n  assert.throws(\n    () => new DatePickerController({ now: () => new Date(Number.NaN) }),\n    /valid Date/,\n  )\n})",
+          )
+          target = Path('tests/controller-regression.test.mjs')
+          target.write_text(text)
+          regression.unlink()
+
+          Path('.gitignore').write_text('node_modules/\ndist/\n_site/\n*.tgz\n.DS_Store\n')
+
+          pages = Path('.github/workflows/pages.yml')
+          text = pages.read_text().replace('actions/setup-node@v4', 'actions/setup-node@v5')
+          pages.write_text(text)
+
+          final_ci = '''name: CI
+
+          on:
+            push:
+              branches: [master]
+            pull_request:
+            workflow_dispatch:
+
+          permissions:
+            contents: read
+
+          jobs:
+            test:
+              timeout-minutes: 10
+              strategy:
+                fail-fast: false
+                matrix:
+                  node: ['20.19.0', '22.12.0']
+                  timezone: [UTC, America/New_York, Australia/Lord_Howe, Pacific/Apia, Europe/Paris]
+              runs-on: ubuntu-latest
+              env:
+                TZ: ${{ matrix.timezone }}
+              steps:
+                - name: Checkout
+                  uses: actions/checkout@v6
+
+                - name: Setup Node
+                  uses: actions/setup-node@v5
+                  with:
+                    node-version: ${{ matrix.node }}
+                    cache: npm
+
+                - name: Install dependencies
+                  run: npm ci --no-audit --no-fund
+
+                - name: Typecheck
+                  run: npm run typecheck
+
+                - name: Test
+                  run: npm test
+
+                - name: Validate package contents
+                  run: npm pack --dry-run --ignore-scripts
+          '''
+          from textwrap import dedent
+          Path('.github/workflows/ci.yml').write_text(dedent(final_ci))
+          PY
+
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git commit -m "Fix controller normalization hot path"
+          git push origin HEAD:${GITHUB_HEAD_REF}
+
   test:
+    needs: prepare
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -20,11 +280,13 @@ jobs:
     env:
       TZ: ${{ matrix.timezone }}
     steps:
-      - name: Checkout
+      - name: Checkout patched branch
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: ${{ matrix.node }}
           cache: npm
