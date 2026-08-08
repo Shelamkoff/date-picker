@@ -1,5 +1,4 @@
 import {
-  civilDayExists,
   clampDate,
   cloneDate,
   dateToParts,
@@ -226,12 +225,11 @@ export class DatePickerController {
   }
 
   select(part: DatePart, value: number): boolean {
-    const snapshot = this.snapshot
-    const allowed = this.#allowedValues(part, snapshot.columns)
-    if (!allowed.includes(value)) return false
-    if (!this.#options.enableTime && (part === 'hour' || part === 'minute')) return false
+    const bounds = this.#bounds()
+    const parts = dateToParts(this.#draft)
+    if (!this.#partAllowed(part, value, parts, bounds)) return false
 
-    const changed: DateParts = { ...snapshot.parts, [part]: value }
+    const changed: DateParts = { ...parts, [part]: value }
     const next: DateParts = part === 'year' || part === 'month'
       ? {
           ...changed,
@@ -244,14 +242,57 @@ export class DatePickerController {
     return true
   }
 
-  #allowedValues(part: DatePart, columns: DatePickerColumns): readonly number[] {
+  #partAllowed(part: DatePart, value: number, parts: DateParts, bounds: DateBounds): boolean {
+    if (!Number.isInteger(value)) return false
+
     switch (part) {
-      case 'year': return columns.years
-      case 'month': return columns.months
-      case 'day': return columns.days
-      case 'hour': return columns.hours
-      case 'minute': return columns.minutes
-      default: return []
+      case 'year': {
+        const [start, end] = yearWindow(
+          parts.year,
+          bounds.min?.getFullYear(),
+          bounds.max?.getFullYear(),
+          this.#options.pastYears,
+          this.#options.futureYears,
+        )
+        if (value < start || value > end) return false
+        const interval = yearInterval(value, this.#options.enableTime)
+        return interval !== null && rangeIntersects(interval[0], interval[1], bounds)
+      }
+      case 'month': {
+        if (value < 1 || value > 12) return false
+        const interval = monthInterval(parts.year, value, this.#options.enableTime)
+        return interval !== null && rangeIntersects(interval[0], interval[1], bounds)
+      }
+      case 'day': {
+        if (value < 1 || value > daysInMonth(parts.year, parts.month)) return false
+        const interval = dayInterval(parts.year, parts.month, value, this.#options.enableTime)
+        return interval !== null && rangeIntersects(interval[0], interval[1], bounds)
+      }
+      case 'hour': {
+        if (!this.#options.enableTime || value < 0 || value > 23) return false
+        return integerRange(0, 59).some(minute => this.#minuteAllowed(
+          parts.year,
+          parts.month,
+          parts.day,
+          value,
+          minute,
+          bounds,
+        ))
+      }
+      case 'minute': {
+        if (!this.#options.enableTime || value < 0 || value > 59) return false
+        const followsStep = value % this.#options.minuteStep === 0
+        if (!followsStep && value !== parts.minute) return false
+        return this.#minuteAllowed(
+          parts.year,
+          parts.month,
+          parts.day,
+          parts.hour,
+          value,
+          bounds,
+        )
+      }
+      default: return false
     }
   }
 
@@ -448,7 +489,6 @@ export class DatePickerController {
     })
 
     const days = integerRange(1, daysInMonth(parts.year, parts.month)).filter(day => {
-      if (!civilDayExists(parts.year, parts.month, day)) return false
       const interval = dayInterval(parts.year, parts.month, day, this.#options.enableTime)
       return interval !== null && rangeIntersects(interval[0], interval[1], bounds)
     })
@@ -457,35 +497,41 @@ export class DatePickerController {
       return { years, months, days, hours: [], minutes: [] }
     }
 
-    const hours = integerRange(0, 23).filter(hour => (
-      integerRange(0, 59).some(minute => this.#minuteAllowed(
-        parts.year,
-        parts.month,
-        parts.day,
-        hour,
-        minute,
-        bounds,
-      ))
-    ))
+    const allowedMinutesByHour = new Map<number, Set<number>>()
+    const hours: number[] = []
+    for (let hour = 0; hour <= 23; hour += 1) {
+      const allowedMinutes = new Set<number>()
+      for (let minute = 0; minute <= 59; minute += 1) {
+        if (this.#minuteAllowed(
+          parts.year,
+          parts.month,
+          parts.day,
+          hour,
+          minute,
+          bounds,
+        )) {
+          allowedMinutes.add(minute)
+        }
+      }
+      if (allowedMinutes.size > 0) {
+        hours.push(hour)
+        allowedMinutesByHour.set(hour, allowedMinutes)
+      }
+    }
 
     const minuteValues = integerRange(0, 59, this.#options.minuteStep)
     if (!minuteValues.includes(parts.minute)) {
       minuteValues.push(parts.minute)
       minuteValues.sort((left, right) => left - right)
     }
-    const minutes = minuteValues.filter(minute => this.#minuteAllowed(
-      parts.year,
-      parts.month,
-      parts.day,
-      parts.hour,
-      minute,
-      bounds,
-    ))
+    const allowedMinutes = allowedMinutesByHour.get(parts.hour)
+    const minutes = allowedMinutes
+      ? minuteValues.filter(minute => allowedMinutes.has(minute))
+      : []
 
     return { years, months, days, hours, minutes }
   }
 }
-
 
 function cloneEvent(event: DatePickerEvent): DatePickerEvent {
   return event.type === 'change'
