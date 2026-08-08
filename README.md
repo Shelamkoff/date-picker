@@ -11,6 +11,7 @@ A dependency-free, framework-agnostic date and time picker written in TypeScript
 - date-only and date-time modes;
 - min/max constraints;
 - configurable minute step;
+- optional cyclic wheel scrolling;
 - local civil-time handling, including DST gaps and repeated wall-clock times;
 - keyboard interaction and accessible DOM attributes;
 - Shadow DOM-friendly event and focus behavior;
@@ -36,11 +37,14 @@ const picker = new DatePicker(host, {
   minuteStep: 5,
   clearable: true,
   showNow: true,
+  loop: true,
   onChange(value, reason) {
     console.log(value, reason)
   },
 })
 ```
+
+`loop: true` makes each wheel cyclic: moving beyond its last available value continues from its first value, and vice versa. Min/max constraints still determine which values are available in each wheel.
 
 The picker owns only the DOM it creates inside the supplied host. Calling `destroy()` removes that subtree and releases its listeners.
 
