@@ -145,6 +145,17 @@ test('years 0 through 99 preserve constructor overflow across year boundaries', 
   assert.equal(previousYear.getDate(), 31)
 })
 
+test('low years do not inherit a surrogate year DST gap', {
+  skip: process.env.TZ !== 'America/New_York',
+}, () => {
+  const value = createLocalDate(42, 3, 2, 2, 30)
+  assert.equal(value.getFullYear(), 42)
+  assert.equal(value.getMonth(), 3)
+  assert.equal(value.getDate(), 2)
+  assert.equal(value.getHours(), 2)
+  assert.equal(value.getMinutes(), 30)
+})
+
 test('selecting a boundary month clamps lower parts without reverting the month', () => {
   const minDate = localDate(2033, 9, 24, 12, 40)
   const maxDate = localDate(2033, 10, 2, 13, 20)
