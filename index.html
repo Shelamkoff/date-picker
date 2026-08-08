@@ -125,7 +125,7 @@ console.log(controller.snapshot.columns)</code></pre>
     const heroHost = byId('hero-picker')
     pickerHosts.push(heroHost)
     const heroValue = new Date()
-    new DatePicker(heroHost, {
+    const heroPicker = new DatePicker(heroHost, {
       value: heroValue,
       enableTime: true,
       clearable: true,
@@ -134,7 +134,7 @@ console.log(controller.snapshot.columns)</code></pre>
       ariaLabel: 'Hero date and time',
       onChange(value) { byId('hero-value').textContent = formatOutput(value) },
     })
-    byId('hero-value').textContent = formatOutput(heroValue)
+    byId('hero-value').textContent = formatOutput(heroPicker.value)
 
     let playground = null
     let playgroundValue = null

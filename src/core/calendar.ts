@@ -87,7 +87,9 @@ export function localDate(
       second,
       millisecond,
     )
-    date.setFullYear(wholeYear)
+    if (!isValidDate(date)) return date
+    const normalizedYear = date.getFullYear()
+    date.setFullYear(wholeYear + (normalizedYear - surrogateYear))
     return date
   }
   return new Date(year, monthIndex, day, hour, minute, second, millisecond)

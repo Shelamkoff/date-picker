@@ -523,26 +523,38 @@ export class DatePickerController {
       throw new RangeError('Selected local civil day has no representable whole minute')
     }
 
-    const requested = new Date(this.#draft.getTime())
-    const exactParts = { ...safeParts }
+    const requestedCandidate = nearestCandidate(
+      exactLocalDateTimes(
+        safeParts.year,
+        safeParts.month,
+        safeParts.day,
+        safeParts.hour,
+        safeParts.minute,
+      ),
+      this.#draft.getTime(),
+    )
+    const requested = requestedCandidate
+      ? clampDate(requestedCandidate, this.#boundsValue)
+      : new Date(this.#draft.getTime())
+    const exactParts = requestedCandidate ? dateToParts(requested) : { ...safeParts }
     const resolveMinute = this.#minuteResolver(
-      safeParts.year,
-      safeParts.month,
-      safeParts.day,
+      exactParts.year,
+      exactParts.month,
+      exactParts.day,
       this.#boundsValue,
     )
     if (this.#minuteValueIsExposed(
-      safeParts.year,
-      safeParts.month,
-      safeParts.day,
-      safeParts.hour,
-      safeParts.minute,
+      exactParts.year,
+      exactParts.month,
+      exactParts.day,
+      exactParts.hour,
+      exactParts.minute,
       this.#options,
       this.#boundsValue,
     )) {
       const exact = nearestCandidate(
-        resolveMinute(safeParts.hour, safeParts.minute),
-        this.#draft.getTime(),
+        resolveMinute(exactParts.hour, exactParts.minute),
+        requested.getTime(),
       )
       if (exact) return exact
     }
@@ -553,6 +565,7 @@ export class DatePickerController {
       this.#options,
       this.#boundsValue,
       changedPart === 'hour' ? safeParts.hour : undefined,
+      resolveMinute,
     )
     if (nearest) return nearest
 

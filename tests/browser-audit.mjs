@@ -159,22 +159,32 @@ await createPicker('audit-edge', `(() => {
   }
 })()`)
 await openPicker('audit-edge')
-await page.evaluate(() => window.scrollTo(0, 0))
-const edgeBox = await page.locator('#audit-edge .sdp-wheel[aria-label="Day"]').boundingBox()
+const edgeWheel = page.locator('#audit-edge .sdp-wheel[aria-label="Day"]')
+await edgeWheel.scrollIntoViewIfNeeded()
+const edgeBox = await edgeWheel.boundingBox()
 assert.ok(edgeBox)
+const edgeScrollBefore = await page.evaluate(() => window.scrollY)
 await page.mouse.move(edgeBox.x + edgeBox.width / 2, edgeBox.y + edgeBox.height / 2)
 await page.mouse.wheel(0, 500)
 await page.waitForTimeout(120)
-assert.ok(await page.evaluate(() => window.scrollY > 0), 'edge wheel trapped page scrolling')
+assert.ok(
+  await page.evaluate(before => window.scrollY > before, edgeScrollBefore),
+  'edge wheel trapped page scrolling',
+)
 
 // A looping wheel consumes the wheel gesture rather than moving the page.
-await page.evaluate(() => window.scrollTo(0, 0))
-const loopBox = await page.locator('#audit-loop .sdp-wheel[aria-label="Day"]').boundingBox()
+const loopWheel = page.locator('#audit-loop .sdp-wheel[aria-label="Day"]')
+await loopWheel.scrollIntoViewIfNeeded()
+const loopBox = await loopWheel.boundingBox()
 assert.ok(loopBox)
+const loopScrollBefore = await page.evaluate(() => window.scrollY)
 await page.mouse.move(loopBox.x + loopBox.width / 2, loopBox.y + loopBox.height / 2)
 await page.mouse.wheel(0, 120)
 await page.waitForTimeout(120)
-assert.ok(await page.evaluate(() => window.scrollY < 2), 'looping wheel leaked page scrolling')
+assert.ok(
+  await page.evaluate(before => Math.abs(window.scrollY - before) < 2, loopScrollBefore),
+  'looping wheel leaked page scrolling',
+)
 await page.waitForTimeout(400)
 
 // Shadow DOM: focus, selection and composed change event must cross the boundary.
