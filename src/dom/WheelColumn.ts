@@ -60,7 +60,6 @@ export class WheelColumn {
 
     const element = this.#document.createElement('div')
     element.className = 'sdp-wheel'
-    element.classList.toggle('is-looping', this.#loop)
     element.setAttribute('role', 'listbox')
     element.setAttribute('aria-orientation', 'vertical')
     element.setAttribute('aria-label', options.ariaLabel)
@@ -102,7 +101,7 @@ export class WheelColumn {
     if (this.#loop === loop) return
     this.cancelPendingSelection()
     this.#loop = loop
-    this.element.classList.toggle('is-looping', loop)
+    this.#syncLoopClass()
     this.#render()
     if (this.#interactive) this.#queueRecenter()
   }
@@ -124,6 +123,7 @@ export class WheelColumn {
     this.cancelPendingSelection()
     this.#items = items
     this.#value = value
+    this.#syncLoopClass()
     this.#render()
     if (this.#interactive) this.#queueRecenter()
   }
@@ -220,8 +220,16 @@ export class WheelColumn {
     this.#updateActiveDescendant()
   }
 
+  #hasLoopingItems(): boolean {
+    return this.#loop && this.#items.length > 1
+  }
+
+  #syncLoopClass(): void {
+    this.element.classList.toggle('is-looping', this.#hasLoopingItems())
+  }
+
   #cycleCount(): number {
-    return this.#loop && this.#items.length > 1 ? 3 : 1
+    return this.#hasLoopingItems() ? 3 : 1
   }
 
   #activeSourceIndex(): number {
@@ -229,7 +237,7 @@ export class WheelColumn {
   }
 
   #centralPositionForSource(sourceIndex: number): number {
-    const index = this.#loop && this.#items.length > 1
+    const index = this.#hasLoopingItems()
       ? this.#items.length + sourceIndex
       : sourceIndex
     return index * this.#itemHeight
@@ -241,14 +249,14 @@ export class WheelColumn {
 
   #normalizePhysicalPosition(position: number): number {
     if (!Number.isFinite(position)) return this.element.scrollTop
-    if (!this.#loop || this.#items.length <= 1) return position
+    if (!this.#hasLoopingItems()) return position
     const cycleHeight = this.#cycleHeight()
     const offset = positiveModulo(position - cycleHeight, cycleHeight)
     return cycleHeight + offset
   }
 
   #physicalToVirtual(physical: number, reference: number): number {
-    if (!this.#loop || this.#items.length <= 1) return physical
+    if (!this.#hasLoopingItems()) return physical
     const normalized = this.#normalizePhysicalPosition(physical)
     const cycleHeight = this.#cycleHeight()
     const cycle = Math.round((reference - normalized) / cycleHeight)
@@ -271,7 +279,7 @@ export class WheelColumn {
 
   #clampVirtualPosition(position: number): number {
     if (!Number.isFinite(position)) return this.#motion.target
-    if (this.#loop && this.#items.length > 1) return position
+    if (this.#hasLoopingItems()) return position
     return Math.min(this.#maximumScrollTop(), Math.max(0, position))
   }
 
@@ -288,7 +296,7 @@ export class WheelColumn {
   }
 
   #canConsumeDelta(delta: number): boolean {
-    if (this.#loop && this.#items.length > 1) return true
+    if (this.#hasLoopingItems()) return true
     const target = this.#motion.target
     const next = this.#clampVirtualPosition(target + delta)
     return Math.abs(next - target) > POSITION_EPSILON
@@ -297,7 +305,7 @@ export class WheelColumn {
   #sourceIndexForPosition(position: number): number {
     if (!this.#items.length) return -1
     const rawIndex = Math.round(position / this.#itemHeight)
-    if (this.#loop && this.#items.length > 1) {
+    if (this.#hasLoopingItems()) {
       const sourceIndex = positiveModulo(rawIndex, this.#items.length)
       return nearestEnabledSourceIndex(this.#items, sourceIndex, true)
     }
@@ -307,7 +315,7 @@ export class WheelColumn {
 
   #alignedVirtualPosition(position: number, sourceIndex: number): number {
     const base = sourceIndex * this.#itemHeight
-    if (!this.#loop || this.#items.length <= 1) return base
+    if (!this.#hasLoopingItems()) return base
     const cycleHeight = this.#cycleHeight()
     const cycle = Math.round((position - base) / cycleHeight)
     return base + cycle * cycleHeight
@@ -379,7 +387,7 @@ export class WheelColumn {
     const virtual = this.#physicalToVirtual(current, this.#motion.position)
     const generation = this.#motion.adopt(virtual)
 
-    if (this.#loop && this.#items.length > 1) {
+    if (this.#hasLoopingItems()) {
       const normalized = this.#normalizePhysicalPosition(virtual)
       if (Math.abs(normalized - current) > POSITION_EPSILON) this.#writeVirtualPosition(virtual)
     }
@@ -515,7 +523,7 @@ export class WheelColumn {
       this.element.removeAttribute('aria-activedescendant')
       return
     }
-    const cycle = this.#loop && this.#items.length > 1 ? 1 : 0
+    const cycle = this.#hasLoopingItems() ? 1 : 0
     this.element.setAttribute('aria-activedescendant', `${this.#baseId}-option-${cycle}-${sourceIndex}`)
   }
 

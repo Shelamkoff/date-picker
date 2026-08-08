@@ -13,6 +13,7 @@
     "exactOptionalPropertyTypes": true,
     "useDefineForClassFields": true,
     "skipLibCheck": true,
+    "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,

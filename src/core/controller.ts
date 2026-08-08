@@ -408,29 +408,42 @@ export class DatePickerController {
       .filter(minute => resolveMinute(hour, minute).length > 0)
   }
 
-  #selectableMinuteOfDayValues(
+  #minuteValueIsExposed(
+    year: number,
+    month: number,
+    day: number,
+    hour: number,
+    minute: number,
+    options: ResolvedDatePickerOptions,
+    bounds: DateBounds,
+  ): boolean {
+    return minute % options.minuteStep === 0
+      || this.#boundaryMinutes(year, month, day, hour, bounds).includes(minute)
+  }
+
+  #candidateMinuteOfDayValues(
     parts: Pick<DateParts, 'year' | 'month' | 'day'>,
     options: ResolvedDatePickerOptions,
     bounds: DateBounds,
-    resolveMinute: MinuteResolver,
     onlyHour?: number,
   ): number[] {
-    const result: number[] = []
+    const result = new Set<number>()
     const hours = onlyHour === undefined ? integerRange(0, 23) : [onlyHour]
     for (const hour of hours) {
-      for (const minute of this.#minuteValuesForHour(
+      for (const minute of integerRange(0, 59, options.minuteStep)) {
+        result.add(hour * 60 + minute)
+      }
+      for (const minute of this.#boundaryMinutes(
         parts.year,
         parts.month,
         parts.day,
         hour,
-        options,
         bounds,
-        resolveMinute,
       )) {
-        result.push(hour * 60 + minute)
+        result.add(hour * 60 + minute)
       }
     }
-    return result
+    return [...result]
   }
 
   #nearestSelectableDate(
@@ -439,10 +452,11 @@ export class DatePickerController {
     options: ResolvedDatePickerOptions,
     bounds: DateBounds,
     onlyHour?: number,
+    resolver?: MinuteResolver,
   ): Date | null {
-    const resolveMinute = this.#minuteResolver(parts.year, parts.month, parts.day, bounds)
+    const resolveMinute = resolver ?? this.#minuteResolver(parts.year, parts.month, parts.day, bounds)
     const requested = parts.hour * 60 + parts.minute
-    const values = this.#selectableMinuteOfDayValues(parts, options, bounds, resolveMinute, onlyHour)
+    const values = this.#candidateMinuteOfDayValues(parts, options, bounds, onlyHour)
       .sort((left, right) => {
         const distance = Math.abs(left - requested) - Math.abs(right - requested)
         return distance !== 0 ? distance : left - right
@@ -466,7 +480,31 @@ export class DatePickerController {
     if (!options.enableTime) return normalized
 
     const parts = dateToParts(normalized)
-    const nearest = this.#nearestSelectableDate(parts, normalized, options, bounds)
+    const resolveMinute = this.#minuteResolver(parts.year, parts.month, parts.day, bounds)
+    if (this.#minuteValueIsExposed(
+      parts.year,
+      parts.month,
+      parts.day,
+      parts.hour,
+      parts.minute,
+      options,
+      bounds,
+    )) {
+      const exact = nearestCandidate(
+        resolveMinute(parts.hour, parts.minute),
+        normalized.getTime(),
+      )
+      if (exact) return exact
+    }
+
+    const nearest = this.#nearestSelectableDate(
+      parts,
+      normalized,
+      options,
+      bounds,
+      undefined,
+      resolveMinute,
+    )
     return nearest ?? normalized
   }
 
@@ -493,17 +531,15 @@ export class DatePickerController {
       safeParts.day,
       this.#boundsValue,
     )
-    const allowedMinutes = this.#minuteValuesForHour(
+    if (this.#minuteValueIsExposed(
       safeParts.year,
       safeParts.month,
       safeParts.day,
       safeParts.hour,
+      safeParts.minute,
       this.#options,
       this.#boundsValue,
-      resolveMinute,
-    )
-
-    if (allowedMinutes.includes(safeParts.minute)) {
+    )) {
       const exact = nearestCandidate(
         resolveMinute(safeParts.hour, safeParts.minute),
         this.#draft.getTime(),

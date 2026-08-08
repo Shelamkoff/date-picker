@@ -93,13 +93,6 @@ export function localDate(
   return new Date(year, monthIndex, day, hour, minute, second, millisecond)
 }
 
-function requireRepresentable(date: Date, operation: string): Date {
-  if (!isValidDate(date)) {
-    throw new RangeError(`${operation} is outside the representable JavaScript Date range`)
-  }
-  return date
-}
-
 export function startOfDay(date: Date): Date {
   if (!isValidDate(date)) throw new RangeError('date must be a valid Date')
   const first = firstExactMinuteOfDay(
