@@ -133,6 +133,47 @@ test('years 0 through 99 retain their literal year', () => {
   assert.equal(year.getFullYear(), 42)
 })
 
+test('years 0 through 99 preserve constructor overflow across year boundaries', () => {
+  const nextYear = createLocalDate(42, 12, 1)
+  assert.equal(nextYear.getFullYear(), 43)
+  assert.equal(nextYear.getMonth(), 0)
+  assert.equal(nextYear.getDate(), 1)
+
+  const previousYear = createLocalDate(42, 0, 0)
+  assert.equal(previousYear.getFullYear(), 41)
+  assert.equal(previousYear.getMonth(), 11)
+  assert.equal(previousYear.getDate(), 31)
+})
+
+test('low years do not inherit a surrogate year DST gap', {
+  skip: process.env.TZ !== 'America/New_York',
+}, () => {
+  const value = createLocalDate(42, 3, 2, 2, 30)
+  assert.equal(value.getFullYear(), 42)
+  assert.equal(value.getMonth(), 3)
+  assert.equal(value.getDate(), 2)
+  assert.equal(value.getHours(), 2)
+  assert.equal(value.getMinutes(), 30)
+})
+
+test('selecting a boundary month clamps lower parts without reverting the month', () => {
+  const minDate = localDate(2033, 9, 24, 12, 40)
+  const maxDate = localDate(2033, 10, 2, 13, 20)
+  const controller = new DatePickerController({
+    enableTime: true,
+    minDate,
+    maxDate,
+    minuteStep: 1,
+  }, localDate(2033, 9, 27, 13, 1))
+  controller.open()
+
+  assert.deepEqual(controller.snapshot.columns.months, [9, 10])
+  assert.equal(controller.select('month', 10), true)
+  assert.equal(controller.snapshot.parts.month, 10)
+  assert.ok((controller.value?.getTime() ?? -Infinity) <= maxDate.getTime())
+  assert.ok((controller.value?.getTime() ?? Infinity) >= minDate.getTime())
+})
+
 test('cancel invalidates a pending WheelMotion completion', () => {
   const frames = []
   const completed = []

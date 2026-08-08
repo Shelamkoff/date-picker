@@ -73,21 +73,12 @@ export function localDate(
   const wholeYear = Math.trunc(year)
   if (Number.isFinite(year) && wholeYear >= 0 && wholeYear <= 99) {
     // The multi-argument Date constructor maps years 0..99 to 1900..1999.
-    // Use a surrogate from the same 400-year Gregorian cycle so leap-day
-    // validity is preserved (year 0 and year 2000 are both leap years), then
-    // replace only the year. This also avoids intermediate overflow near the
-    // ECMAScript Date range boundaries.
-    const surrogateYear = 2000 + wholeYear
-    const date = new Date(
-      surrogateYear,
-      monthIndex,
-      day,
-      hour,
-      minute,
-      second,
-      millisecond,
-    )
-    date.setFullYear(wholeYear)
+    // Apply the target year through local setters instead, so overflow keeps
+    // native Date semantics without borrowing DST rules from a surrogate year.
+    const date = new Date(0)
+    date.setHours(12, 0, 0, 0)
+    date.setFullYear(wholeYear, monthIndex, day)
+    date.setHours(hour, minute, second, millisecond)
     return date
   }
   return new Date(year, monthIndex, day, hour, minute, second, millisecond)
