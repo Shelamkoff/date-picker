@@ -1,6 +1,7 @@
 name: Verify final GitHub Pages deployment
 
 on:
+  pull_request:
   push:
     branches: [pages-final-check]
     paths:
