@@ -20,7 +20,9 @@ interface RenderedItem extends WheelItem {
 }
 
 const WHEEL_ID_KEY = Symbol.for('@shelamkoff/date-picker/wheel-id')
-const SCROLL_SETTLE_DELAY = 180
+const SCROLL_SETTLE_DELAY = 90
+const WHEEL_RESPONSE_TIME = 48
+const WHEEL_POSITION_EPSILON = 0.25
 
 function nextWheelId(document: Document): number {
   const registry = document as Document & { [WHEEL_ID_KEY]?: number }
@@ -43,6 +45,12 @@ export class WheelColumn {
   #baseId: string
   #settleTimer: ReturnType<typeof setTimeout> | undefined
   #programmaticTarget: number | null = null
+  #wheelAnimationToken = 0
+  #wheelAnimating = false
+  #wheelPosition: number | null = null
+  #wheelTarget: number | null = null
+  #wheelLastFrame = 0
+  #commitAfterWheelAnimation = false
   #interactive = false
   #destroyed = false
 
@@ -138,6 +146,7 @@ export class WheelColumn {
 
   cancelPendingSelection(): void {
     this.#clearSettleTimer()
+    this.#cancelWheelAnimation()
     this.#programmaticTarget = null
   }
 
@@ -228,6 +237,7 @@ export class WheelColumn {
     const sourceIndex = this.#activeSourceIndex()
     if (sourceIndex < 0) return
     this.#clearSettleTimer()
+    this.#cancelWheelAnimation()
     const target = this.#renderIndexForSource(sourceIndex) * this.#itemHeight
     this.#programmaticTarget = target
     this.element.scrollTo({ top: target, behavior: 'auto' })
@@ -255,6 +265,117 @@ export class WheelColumn {
     this.#programmaticTarget = null
     this.element.scrollTop = target
     return true
+  }
+
+  #maximumScrollTop(): number {
+    return Math.max(0, this.element.scrollHeight - this.element.clientHeight)
+  }
+
+  #clampWheelPosition(position: number): number {
+    if (!Number.isFinite(position)) return this.element.scrollTop
+    if (this.#loop && this.#items.length > 1) return position
+    return Math.min(this.#maximumScrollTop(), Math.max(0, position))
+  }
+
+  #normalizedWheelDelta(event: WheelEvent): number {
+    const pixels = event.deltaMode === 1
+      ? event.deltaY * 16
+      : event.deltaMode === 2
+        ? event.deltaY * Math.max(this.#itemHeight, this.element.clientHeight)
+        : event.deltaY
+
+    if (!Number.isFinite(pixels) || pixels === 0) return 0
+
+    // Classic mouse wheels commonly report jumps of 100–120 CSS pixels.
+    // Compress large impulses to roughly one row while preserving the small,
+    // high-resolution deltas produced by touchpads.
+    const magnitude = this.#itemHeight * Math.tanh(Math.abs(pixels) / this.#itemHeight)
+    return Math.sign(pixels) * magnitude
+  }
+
+  #cancelWheelAnimation(): void {
+    this.#wheelAnimationToken += 1
+    this.#wheelAnimating = false
+    this.#wheelPosition = null
+    this.#wheelTarget = null
+    this.#wheelLastFrame = 0
+    this.#commitAfterWheelAnimation = false
+  }
+
+  #queueWheelDelta(delta: number): void {
+    if (!Number.isFinite(delta) || delta === 0) return
+
+    if (this.#wheelPosition === null || this.#wheelTarget === null) {
+      const current = this.element.scrollTop
+      this.#wheelPosition = current
+      this.#wheelTarget = current
+    }
+
+    this.#wheelTarget = this.#clampWheelPosition(this.#wheelTarget + delta)
+    this.#startWheelAnimation()
+  }
+
+  #startWheelAnimation(): void {
+    if (this.#wheelAnimating) return
+    if (this.#wheelPosition === null || this.#wheelTarget === null) return
+
+    this.#wheelAnimating = true
+    this.#wheelLastFrame = 0
+    const token = ++this.#wheelAnimationToken
+    this.#requestFrame(timestamp => this.#animateWheel(token, timestamp))
+  }
+
+  #animateWheel(token: number, timestamp: number): void {
+    if (
+      token !== this.#wheelAnimationToken
+      || !this.#wheelAnimating
+      || this.#destroyed
+      || !this.#interactive
+      || this.#wheelPosition === null
+      || this.#wheelTarget === null
+    ) {
+      return
+    }
+
+    const elapsed = this.#wheelLastFrame === 0
+      ? 16.67
+      : Math.min(50, Math.max(1, timestamp - this.#wheelLastFrame))
+    this.#wheelLastFrame = timestamp
+
+    const distance = this.#wheelTarget - this.#wheelPosition
+    const interpolation = 1 - Math.exp(-elapsed / WHEEL_RESPONSE_TIME)
+    const next = Math.abs(distance) <= WHEEL_POSITION_EPSILON
+      ? this.#wheelTarget
+      : this.#wheelPosition + distance * interpolation
+
+    this.#wheelPosition = next
+    const physical = this.#normalizeScrollTop(next)
+    this.#programmaticTarget = physical
+    this.element.scrollTop = physical
+
+    if (next !== this.#wheelTarget) {
+      this.#requestFrame(nextTimestamp => this.#animateWheel(token, nextTimestamp))
+      return
+    }
+
+    this.#wheelAnimating = false
+    this.#wheelLastFrame = 0
+    this.#wheelPosition = physical
+    this.#wheelTarget = physical
+
+    if (this.#commitAfterWheelAnimation) {
+      this.#commitAfterWheelAnimation = false
+      this.#commitSettledSelection()
+    }
+  }
+
+  #alignedWheelTarget(position: number, renderedIndex: number): number {
+    const alignedPhysical = renderedIndex * this.#itemHeight
+    if (!this.#loop || this.#items.length <= 1) return alignedPhysical
+
+    const cycleHeight = this.#items.length * this.#itemHeight
+    const cycle = Math.round((position - alignedPhysical) / cycleHeight)
+    return alignedPhysical + cycle * cycleHeight
   }
 
   #queueRecenter(): void {
@@ -304,27 +425,29 @@ export class WheelColumn {
     ) {
       return
     }
-    event.preventDefault()
-    this.#beginUserInteraction()
 
-    const scale = event.deltaMode === 1
-      ? this.#itemHeight
-      : event.deltaMode === 2
-        ? this.element.clientHeight
-        : 1
-    const target = this.#normalizeScrollTop(this.element.scrollTop + event.deltaY * scale)
-    this.element.scrollTop = target
+    const delta = this.#normalizedWheelDelta(event)
+    if (delta === 0) return
+
+    event.preventDefault()
+    this.#clearSettleTimer()
+    if (activeElementFor(this.element) !== this.element) this.focus()
+    this.#queueWheelDelta(delta)
     this.#scheduleSettle()
   }
 
   #handleScroll = (): void => {
     if (!this.#interactive || this.#destroyed) return
+    if (this.#wheelAnimating) return
 
     if (this.#programmaticTarget !== null) {
       this.#programmaticTarget = null
       return
     }
 
+    this.#wheelPosition = null
+    this.#wheelTarget = null
+    this.#commitAfterWheelAnimation = false
     this.#rebaseLoopScrollPosition()
     this.#scheduleSettle()
   }
@@ -347,6 +470,27 @@ export class WheelColumn {
 
   #settleSelection(): void {
     if (!this.#interactive || this.#items.length === 0) return
+
+    const position = this.#wheelTarget ?? this.#wheelPosition ?? this.element.scrollTop
+    const physical = this.#normalizeScrollTop(position)
+    const rendered = this.#renderedItems()
+    const rawIndex = Math.round(physical / this.#itemHeight)
+    const index = nearestEnabledIndex(rendered, rawIndex)
+    if (index < 0) return
+
+    if (this.#wheelPosition === null || this.#wheelTarget === null) {
+      this.#wheelPosition = this.element.scrollTop
+      this.#wheelTarget = this.element.scrollTop
+    }
+
+    this.#wheelTarget = this.#clampWheelPosition(this.#alignedWheelTarget(position, index))
+    this.#commitAfterWheelAnimation = true
+    this.#startWheelAnimation()
+  }
+
+  #commitSettledSelection(): void {
+    if (!this.#interactive || this.#items.length === 0) return
+
     const rendered = this.#renderedItems()
     const rawIndex = Math.round(this.element.scrollTop / this.#itemHeight)
     const index = nearestEnabledIndex(rendered, rawIndex)
@@ -355,17 +499,11 @@ export class WheelColumn {
 
     const changed = this.#value !== item.value
     this.#value = item.value
-
-    if (this.#loop && this.#items.length > 1) {
-      const centeredIndex = this.#renderIndexForSource(item.sourceIndex)
-      const centeredTop = centeredIndex * this.#itemHeight
-      if (Math.abs(this.element.scrollTop - centeredTop) > 1) this.#scrollToValue()
-    }
-    else {
-      const alignedTop = index * this.#itemHeight
-      if (Math.abs(this.element.scrollTop - alignedTop) > 1) this.#scrollToValue()
-    }
     this.#updateSelectionState()
+
+    const physical = this.#normalizeScrollTop(index * this.#itemHeight)
+    this.#wheelPosition = physical
+    this.#wheelTarget = physical
 
     if (changed) this.#onChange(item.value)
   }
