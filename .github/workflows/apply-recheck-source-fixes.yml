@@ -1,0 +1,270 @@
+name: Apply verified recheck fixes
+
+on:
+  push:
+    branches: [browser-recheck]
+    paths:
+      - .github/workflows/apply-recheck-source-fixes.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22.12.0'
+          cache: npm
+
+      - name: Apply source and regression fixes
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          calendar = Path('src/core/calendar.ts')
+          text = calendar.read_text()
+          old = '''    const surrogateYear = 2000 + wholeYear
+              const date = new Date(
+                surrogateYear,
+                monthIndex,
+                day,
+                hour,
+                minute,
+                second,
+                millisecond,
+              )
+              date.setFullYear(wholeYear)
+              return date
+          '''
+          # Source is indented by four spaces; normalize the literal explicitly.
+          old = old.replace('          ', '')
+          new = '''    const surrogateYear = 2000 + wholeYear
+              const date = new Date(
+                surrogateYear,
+                monthIndex,
+                day,
+                hour,
+                minute,
+                second,
+                millisecond,
+              )
+              if (!isValidDate(date)) return date
+              const normalizedYear = date.getFullYear()
+              date.setFullYear(wholeYear + (normalizedYear - surrogateYear))
+              return date
+          '''.replace('          ', '')
+          if old not in text:
+              raise SystemExit('localDate replacement target not found')
+          calendar.write_text(text.replace(old, new, 1))
+
+          controller = Path('src/core/controller.ts')
+          text = controller.read_text()
+          old = '''    const requested = new Date(this.#draft.getTime())
+              const exactParts = { ...safeParts }
+              const resolveMinute = this.#minuteResolver(
+                safeParts.year,
+                safeParts.month,
+                safeParts.day,
+                this.#boundsValue,
+              )
+              if (this.#minuteValueIsExposed(
+                safeParts.year,
+                safeParts.month,
+                safeParts.day,
+                safeParts.hour,
+                safeParts.minute,
+                this.#options,
+                this.#boundsValue,
+              )) {
+                const exact = nearestCandidate(
+                  resolveMinute(safeParts.hour, safeParts.minute),
+                  this.#draft.getTime(),
+                )
+                if (exact) return exact
+              }
+
+              const nearest = this.#nearestSelectableDate(
+                exactParts,
+                requested,
+                this.#options,
+                this.#boundsValue,
+                changedPart === 'hour' ? safeParts.hour : undefined,
+              )
+          '''.replace('          ', '')
+          new = '''    const requestedCandidate = nearestCandidate(
+                exactLocalDateTimes(
+                  safeParts.year,
+                  safeParts.month,
+                  safeParts.day,
+                  safeParts.hour,
+                  safeParts.minute,
+                ),
+                this.#draft.getTime(),
+              )
+              const requested = requestedCandidate
+                ? clampDate(requestedCandidate, this.#boundsValue)
+                : new Date(this.#draft.getTime())
+              const exactParts = requestedCandidate ? dateToParts(requested) : { ...safeParts }
+              const resolveMinute = this.#minuteResolver(
+                exactParts.year,
+                exactParts.month,
+                exactParts.day,
+                this.#boundsValue,
+              )
+              if (this.#minuteValueIsExposed(
+                exactParts.year,
+                exactParts.month,
+                exactParts.day,
+                exactParts.hour,
+                exactParts.minute,
+                this.#options,
+                this.#boundsValue,
+              )) {
+                const exact = nearestCandidate(
+                  resolveMinute(exactParts.hour, exactParts.minute),
+                  requested.getTime(),
+                )
+                if (exact) return exact
+              }
+
+              const nearest = this.#nearestSelectableDate(
+                exactParts,
+                requested,
+                this.#options,
+                this.#boundsValue,
+                changedPart === 'hour' ? safeParts.hour : undefined,
+                resolveMinute,
+              )
+          '''.replace('          ', '')
+          if old not in text:
+              raise SystemExit('controller replacement target not found')
+          controller.write_text(text.replace(old, new, 1))
+
+          tests = Path('tests/controller-regression.test.mjs')
+          text = tests.read_text()
+          marker = "test('years 0 through 99 retain their literal year', () => {\n  const year = createLocalDate(42, 0, 1)\n  assert.equal(year.getFullYear(), 42)\n})\n"
+          replacement = marker + '''
+          test('years 0 through 99 preserve constructor overflow across year boundaries', () => {
+            const nextYear = createLocalDate(42, 12, 1)
+            assert.equal(nextYear.getFullYear(), 43)
+            assert.equal(nextYear.getMonth(), 0)
+            assert.equal(nextYear.getDate(), 1)
+
+            const previousYear = createLocalDate(42, 0, 0)
+            assert.equal(previousYear.getFullYear(), 41)
+            assert.equal(previousYear.getMonth(), 11)
+            assert.equal(previousYear.getDate(), 31)
+          })
+
+          test('selecting a boundary month clamps lower parts without reverting the month', () => {
+            const minDate = localDate(2033, 9, 24, 12, 40)
+            const maxDate = localDate(2033, 10, 2, 13, 20)
+            const controller = new DatePickerController({
+              enableTime: true,
+              minDate,
+              maxDate,
+              minuteStep: 1,
+            }, localDate(2033, 9, 27, 13, 1))
+            controller.open()
+
+            assert.deepEqual(controller.snapshot.columns.months, [9, 10])
+            assert.equal(controller.select('month', 10), true)
+            assert.equal(controller.snapshot.parts.month, 10)
+            assert.ok(controller.value.getTime() <= maxDate.getTime())
+            assert.ok(controller.value.getTime() >= minDate.getTime())
+          })
+          '''
+          from textwrap import dedent
+          replacement = marker + dedent(replacement[len(marker):]).lstrip()
+          if marker not in text:
+              raise SystemExit('test insertion target not found')
+          tests.write_text(text.replace(marker, replacement, 1))
+
+          demo = Path('index.html')
+          text = demo.read_text()
+          text = text.replace(
+              "    new DatePicker(heroHost, {\n",
+              "    const heroPicker = new DatePicker(heroHost, {\n",
+              1,
+          )
+          old = "    byId('hero-value').textContent = formatOutput(heroValue)\n"
+          new = "    byId('hero-value').textContent = formatOutput(heroPicker.value)\n"
+          if old not in text:
+              raise SystemExit('hero demo replacement target not found')
+          demo.write_text(text.replace(old, new, 1))
+
+          browser = Path('tests/browser-audit.mjs')
+          text = browser.read_text()
+          old = '''await page.evaluate(() => window.scrollTo(0, 0))
+          const edgeBox = await page.locator('#audit-edge .sdp-wheel[aria-label="Day"]').boundingBox()
+          assert.ok(edgeBox)
+          await page.mouse.move(edgeBox.x + edgeBox.width / 2, edgeBox.y + edgeBox.height / 2)
+          await page.mouse.wheel(0, 500)
+          await page.waitForTimeout(120)
+          assert.ok(await page.evaluate(() => window.scrollY > 0), 'edge wheel trapped page scrolling')
+
+          // A looping wheel consumes the wheel gesture rather than moving the page.
+          await page.evaluate(() => window.scrollTo(0, 0))
+          const loopBox = await page.locator('#audit-loop .sdp-wheel[aria-label="Day"]').boundingBox()
+          assert.ok(loopBox)
+          await page.mouse.move(loopBox.x + loopBox.width / 2, loopBox.y + loopBox.height / 2)
+          await page.mouse.wheel(0, 120)
+          await page.waitForTimeout(120)
+          assert.ok(await page.evaluate(() => window.scrollY < 2), 'looping wheel leaked page scrolling')
+          '''.replace('          ', '')
+          new = '''const edgeWheel = page.locator('#audit-edge .sdp-wheel[aria-label="Day"]')
+          await edgeWheel.scrollIntoViewIfNeeded()
+          const edgeBox = await edgeWheel.boundingBox()
+          assert.ok(edgeBox)
+          const edgeScrollBefore = await page.evaluate(() => window.scrollY)
+          await page.mouse.move(edgeBox.x + edgeBox.width / 2, edgeBox.y + edgeBox.height / 2)
+          await page.mouse.wheel(0, 500)
+          await page.waitForTimeout(120)
+          assert.ok(
+            await page.evaluate(before => window.scrollY > before, edgeScrollBefore),
+            'edge wheel trapped page scrolling',
+          )
+
+          // A looping wheel consumes the wheel gesture rather than moving the page.
+          const loopWheel = page.locator('#audit-loop .sdp-wheel[aria-label="Day"]')
+          await loopWheel.scrollIntoViewIfNeeded()
+          const loopBox = await loopWheel.boundingBox()
+          assert.ok(loopBox)
+          const loopScrollBefore = await page.evaluate(() => window.scrollY)
+          await page.mouse.move(loopBox.x + loopBox.width / 2, loopBox.y + loopBox.height / 2)
+          await page.mouse.wheel(0, 120)
+          await page.waitForTimeout(120)
+          assert.ok(
+            await page.evaluate(before => Math.abs(window.scrollY - before) < 2, loopScrollBefore),
+            'looping wheel leaked page scrolling',
+          )
+          '''.replace('          ', '')
+          if old not in text:
+              raise SystemExit('browser scroll replacement target not found')
+          browser.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Commit verified source fixes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/core/calendar.ts src/core/controller.ts tests/controller-regression.test.mjs tests/browser-audit.mjs index.html
+          git diff --cached --check
+          git commit -m "Fix low-year overflow and bounded part selection"
+          git push
