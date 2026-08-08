@@ -262,52 +262,6 @@ jobs:
             .DS_Store
           ''').lstrip())
 
-          Path('.github/workflows/ci.yml').write_text(dedent('''
-            name: CI
-
-            on:
-              push:
-                branches: [master]
-              pull_request:
-              workflow_dispatch:
-
-            permissions:
-              contents: read
-
-            jobs:
-              test:
-                timeout-minutes: 10
-                strategy:
-                  fail-fast: false
-                  matrix:
-                    node: ['20.19.0', '22.12.0']
-                    timezone: [UTC, America/New_York, Australia/Lord_Howe, Pacific/Apia, Europe/Paris]
-                runs-on: ubuntu-latest
-                env:
-                  TZ: ${{ matrix.timezone }}
-                steps:
-                  - name: Checkout
-                    uses: actions/checkout@v6
-
-                  - name: Setup Node
-                    uses: actions/setup-node@v5
-                    with:
-                      node-version: ${{ matrix.node }}
-                      cache: npm
-
-                  - name: Install dependencies
-                    run: npm ci --no-audit --no-fund
-
-                  - name: Typecheck
-                    run: npm run typecheck
-
-                  - name: Test
-                    run: npm test
-
-                  - name: Validate package contents
-                    run: npm pack --dry-run --ignore-scripts
-          ''').lstrip())
-
           pages = Path('.github/workflows/pages.yml')
           pages.write_text(pages.read_text().replace('actions/setup-node@v4', 'actions/setup-node@v5'))
           PY
