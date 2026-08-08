@@ -42,6 +42,7 @@ jobs:
 
       - name: Start demo server
         run: |
+          cp src/style.css style.css
           python3 -m http.server 4173 --bind 127.0.0.1 > /tmp/date-picker-http.log 2>&1 &
           echo $! > /tmp/date-picker-http.pid
           for attempt in {1..30}; do
