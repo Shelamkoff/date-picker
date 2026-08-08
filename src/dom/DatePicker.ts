@@ -10,6 +10,7 @@ import {
   type DatePickerOptions,
   type DatePickerSnapshot,
 } from '../core/index.js'
+import { resolvePopoverVerticalPlacement } from './PopoverPlacement.js'
 import { WheelColumn, type WheelItem } from './WheelColumn.js'
 
 export interface DatePickerWidgetOptions extends DatePickerOptions {
@@ -556,16 +557,23 @@ export class DatePicker {
     const anchor = this.element.getBoundingClientRect()
     const popover = this.#popover.getBoundingClientRect()
     const gap = 7
-    const spaceBelow = window.innerHeight - anchor.bottom
-    const spaceAbove = anchor.top
+    const viewportPadding = 8
+    const placement = resolvePopoverVerticalPlacement({
+      anchorTop: anchor.top,
+      anchorBottom: anchor.bottom,
+      popoverHeight: popover.height,
+      viewportHeight: window.innerHeight,
+      gap,
+      viewportPadding,
+    })
 
-    if (spaceBelow < popover.height + gap && spaceAbove > spaceBelow) {
+    if (placement.openAbove) {
       this.#popover.style.top = 'auto'
       this.#popover.style.bottom = 'calc(100% + 0.4rem)'
     }
+    this.#popover.style.maxHeight = `${placement.maxHeight}px`
 
     const positioned = this.#popover.getBoundingClientRect()
-    const viewportPadding = 8
     let shift = 0
     if (positioned.left < viewportPadding) shift += viewportPadding - positioned.left
     if (positioned.right > window.innerWidth - viewportPadding) {
@@ -578,6 +586,7 @@ export class DatePicker {
     this.#popover.style.removeProperty('top')
     this.#popover.style.removeProperty('bottom')
     this.#popover.style.removeProperty('transform')
+    this.#popover.style.removeProperty('max-height')
   }
 
   #handleTriggerClick = (): void => this.toggle()
