@@ -52,9 +52,6 @@ jobs:
                   1,
               )
           tsconfig.write_text(text)
-
-          pages = Path('.github/workflows/pages.yml')
-          pages.write_text(pages.read_text().replace('actions/setup-node@v4', 'actions/setup-node@v5'))
           PY
 
           cat > .gitignore <<'EOF'
@@ -67,9 +64,6 @@ jobs:
 
           rm -f .verified-fix.tar.xz
           rm -f tests/audit-regression.test.mjs
-          rm -f .github/workflows/apply-hotpath-fix.yml
-          rm -f .github/workflows/apply-hotpath-fix-trigger.yml
-          rm -f .github/workflows/apply-final-audit-fix.yml
 
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
@@ -90,11 +84,11 @@ jobs:
       - name: Validate package contents
         run: npm pack --dry-run --ignore-scripts
 
-      - name: Commit verified fix
+      - name: Commit verified source fix
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add -A
+          git add -A -- ':!.github/workflows'
           git diff --cached --check
           git commit -m "Fix controller normalization hot path"
           git push origin HEAD:${GITHUB_HEAD_REF}
