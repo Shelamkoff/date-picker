@@ -136,7 +136,9 @@
   width: max-content;
   min-width: 100%;
   max-width: min(calc(100vw - 1rem), 36rem);
-  overflow: hidden;
+  max-height: calc(100vh - 1rem);
+  overflow-x: hidden;
+  overflow-y: auto;
   border: 1px solid var(--sdp-border, #272a2d);
   border-radius: var(--sdp-radius-card, 0.625rem);
   background: var(--sdp-surface, #000000);
