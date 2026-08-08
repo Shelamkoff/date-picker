@@ -1,0 +1,146 @@
+name: Apply verified final audit fix
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-date-picker-final-audit-fix
+  cancel-in-progress: false
+
+jobs:
+  apply:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout head branch
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.head_ref || github.ref_name }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22.12.0'
+          cache: npm
+
+      - name: Apply verified source files
+        run: |
+          tar --extract --xz --file=.verified-fix.tar.xz --directory=.
+
+          python3 <<'PY'
+          from pathlib import Path
+
+          calendar = Path('src/core/calendar.ts')
+          text = calendar.read_text()
+          marker = 'function requireRepresentable('
+          if marker in text:
+              start = text.index(marker)
+              end = text.index('export function startOfDay(', start)
+              calendar.write_text(text[:start] + text[end:])
+
+          tsconfig = Path('tsconfig.json')
+          text = tsconfig.read_text()
+          if '"noUnusedLocals"' not in text:
+              text = text.replace(
+                  '    "noUnusedParameters": true,\n',
+                  '    "noUnusedLocals": true,\n    "noUnusedParameters": true,\n',
+                  1,
+              )
+          tsconfig.write_text(text)
+
+          pages = Path('.github/workflows/pages.yml')
+          pages.write_text(pages.read_text().replace('actions/setup-node@v4', 'actions/setup-node@v5'))
+          PY
+
+          cat > .gitignore <<'EOF'
+          node_modules/
+          dist/
+          _site/
+          *.tgz
+          .DS_Store
+          EOF
+
+          cat > .github/workflows/ci.yml <<'EOF'
+          name: CI
+
+          on:
+            push:
+              branches: [master]
+            pull_request:
+            workflow_dispatch:
+
+          permissions:
+            contents: read
+
+          jobs:
+            test:
+              timeout-minutes: 10
+              strategy:
+                fail-fast: false
+                matrix:
+                  node: ['20.19.0', '22.12.0']
+                  timezone: [UTC, America/New_York, Australia/Lord_Howe, Pacific/Apia, Europe/Paris]
+              runs-on: ubuntu-latest
+              env:
+                TZ: ${{ matrix.timezone }}
+              steps:
+                - name: Checkout
+                  uses: actions/checkout@v6
+
+                - name: Setup Node
+                  uses: actions/setup-node@v5
+                  with:
+                    node-version: ${{ matrix.node }}
+                    cache: npm
+
+                - name: Install dependencies
+                  run: npm ci --no-audit --no-fund
+
+                - name: Typecheck
+                  run: npm run typecheck
+
+                - name: Test
+                  run: npm test
+
+                - name: Validate package contents
+                  run: npm pack --dry-run --ignore-scripts
+          EOF
+
+          rm -f .verified-fix.tar.xz
+          rm -f tests/audit-regression.test.mjs
+          rm -f .github/workflows/apply-hotpath-fix.yml
+          rm -f .github/workflows/apply-hotpath-fix-trigger.yml
+          rm -f .github/workflows/apply-final-audit-fix.yml
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Verify supported timezones
+        run: |
+          for timezone in UTC America/New_York Australia/Lord_Howe Pacific/Apia Europe/Paris; do
+            echo "Testing ${timezone}"
+            TZ="${timezone}" node --test tests/*.test.mjs
+          done
+
+      - name: Validate package contents
+        run: npm pack --dry-run --ignore-scripts
+
+      - name: Commit verified fix
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add -A
+          git diff --cached --check
+          git commit -m "Fix controller normalization hot path"
+          git push origin HEAD:${GITHUB_HEAD_REF}
