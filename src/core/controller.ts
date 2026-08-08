@@ -497,37 +497,33 @@ export class DatePickerController {
       return { years, months, days, hours: [], minutes: [] }
     }
 
-    const allowedMinutesByHour = new Map<number, Set<number>>()
-    const hours: number[] = []
-    for (let hour = 0; hour <= 23; hour += 1) {
-      const allowedMinutes = new Set<number>()
-      for (let minute = 0; minute <= 59; minute += 1) {
-        if (this.#minuteAllowed(
-          parts.year,
-          parts.month,
-          parts.day,
-          hour,
-          minute,
-          bounds,
-        )) {
-          allowedMinutes.add(minute)
-        }
-      }
-      if (allowedMinutes.size > 0) {
-        hours.push(hour)
-        allowedMinutesByHour.set(hour, allowedMinutes)
-      }
+    const minuteAllowedCache = new Map<number, boolean>()
+    const minuteAllowed = (hour: number, minute: number): boolean => {
+      const key = hour * 60 + minute
+      const cached = minuteAllowedCache.get(key)
+      if (cached !== undefined) return cached
+      const allowed = this.#minuteAllowed(
+        parts.year,
+        parts.month,
+        parts.day,
+        hour,
+        minute,
+        bounds,
+      )
+      minuteAllowedCache.set(key, allowed)
+      return allowed
     }
+
+    const hours = integerRange(0, 23).filter(hour => (
+      integerRange(0, 59).some(minute => minuteAllowed(hour, minute))
+    ))
 
     const minuteValues = integerRange(0, 59, this.#options.minuteStep)
     if (!minuteValues.includes(parts.minute)) {
       minuteValues.push(parts.minute)
       minuteValues.sort((left, right) => left - right)
     }
-    const allowedMinutes = allowedMinutesByHour.get(parts.hour)
-    const minutes = allowedMinutes
-      ? minuteValues.filter(minute => allowedMinutes.has(minute))
-      : []
+    const minutes = minuteValues.filter(minute => minuteAllowed(parts.hour, minute))
 
     return { years, months, days, hours, minutes }
   }
