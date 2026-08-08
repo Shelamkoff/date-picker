@@ -20,6 +20,7 @@ interface RenderedItem extends WheelItem {
 }
 
 const WHEEL_ID_KEY = Symbol.for('@shelamkoff/date-picker/wheel-id')
+const SCROLL_SETTLE_DELAY = 120
 
 function nextWheelId(document: Document): number {
   const registry = document as Document & { [WHEEL_ID_KEY]?: number }
@@ -237,6 +238,27 @@ export class WheelColumn {
     })
   }
 
+  #rebaseLoopScrollPosition(): boolean {
+    if (!this.#loop || this.#items.length <= 1) return false
+
+    const cycleHeight = this.#items.length * this.#itemHeight
+    const current = this.element.scrollTop
+    let target = current
+
+    while (target < cycleHeight) target += cycleHeight
+    while (target >= cycleHeight * 2) target -= cycleHeight
+    if (Math.abs(target - current) <= 1) return false
+
+    this.#programmaticTarget = target
+    this.element.scrollTop = target
+    this.#requestFrame(() => {
+      if (this.#programmaticTarget === target && Math.abs(this.element.scrollTop - target) <= 1) {
+        this.#programmaticTarget = null
+      }
+    })
+    return true
+  }
+
   #queueRecenter(): void {
     queueMicrotask(() => {
       if (!this.#destroyed && this.#interactive) this.#scrollToValue()
@@ -258,6 +280,16 @@ export class WheelColumn {
     this.element.classList.remove('is-settling')
   }
 
+  #scheduleSettle(): void {
+    this.#clearSettleTimer()
+    this.element.classList.add('is-settling')
+    this.#settleTimer = setTimeout(() => {
+      this.#settleTimer = undefined
+      this.element.classList.remove('is-settling')
+      if (this.#interactive && !this.#destroyed) this.#settleSelection()
+    }, SCROLL_SETTLE_DELAY)
+  }
+
   #beginUserInteraction = (): void => {
     if (!this.#interactive || this.#destroyed) return
     this.cancelPendingSelection()
@@ -274,14 +306,8 @@ export class WheelColumn {
       return
     }
 
-    this.element.classList.add('is-settling')
-    this.#clearSettleTimer()
-    this.element.classList.add('is-settling')
-    this.#settleTimer = setTimeout(() => {
-      this.#settleTimer = undefined
-      this.element.classList.remove('is-settling')
-      if (this.#interactive && !this.#destroyed) this.#settleSelection()
-    }, 80)
+    this.#rebaseLoopScrollPosition()
+    this.#scheduleSettle()
   }
 
   #handleClick = (event: MouseEvent): void => {
@@ -308,10 +334,8 @@ export class WheelColumn {
     const item = rendered[index]
     if (!item) return
 
-    if (this.#value !== item.value) {
-      this.#value = item.value
-      this.#onChange(item.value)
-    }
+    const changed = this.#value !== item.value
+    this.#value = item.value
 
     if (this.#loop && this.#items.length > 1) {
       const centeredIndex = this.#renderIndexForSource(item.sourceIndex)
@@ -319,6 +343,11 @@ export class WheelColumn {
       if (currentIndex !== centeredIndex) this.#scrollToValue()
     }
     this.#updateSelectionState()
+
+    // DatePicker may synchronously re-render this wheel from inside onChange.
+    // Notify only after all local DOM work is complete to avoid stale work
+    // fighting the user's active scroll gesture.
+    if (changed) this.#onChange(item.value)
   }
 
   #enabledSourceIndexes(): number[] {
@@ -332,12 +361,13 @@ export class WheelColumn {
     const item = this.#items[sourceIndex]
     if (!item || item.disabled) return
     this.cancelPendingSelection()
-    if (this.#value !== item.value) {
-      this.#value = item.value
-      this.#onChange(item.value)
-    }
+
+    const changed = this.#value !== item.value
+    this.#value = item.value
     this.#updateSelectionState()
     if (this.#interactive) this.#queueRecenter()
+
+    if (changed) this.#onChange(item.value)
   }
 
   #confirmCurrent(): void {
@@ -345,9 +375,9 @@ export class WheelColumn {
     const item = this.#items[sourceIndex]
     if (!item || item.disabled) return
     this.cancelPendingSelection()
-    this.#onChange(item.value)
     this.#updateSelectionState()
     if (this.#interactive) this.#queueRecenter()
+    this.#onChange(item.value)
   }
 
   #move(step: number): void {
