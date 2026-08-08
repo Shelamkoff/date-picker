@@ -198,7 +198,7 @@ const shadowResult = await page.evaluate(async () => {
   shadow.append(host)
   let composedEvents = 0
   const listener = event => {
-    if (event.target === host) composedEvents += 1
+    if (event.composedPath().includes(host)) composedEvents += 1
   }
   document.addEventListener('date-picker-change', listener)
   const picker = new DatePicker(host, {
