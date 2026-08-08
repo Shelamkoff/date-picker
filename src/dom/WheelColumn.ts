@@ -1,3 +1,5 @@
+import { WheelMotion } from './WheelMotion.js'
+
 export interface WheelItem {
   readonly value: number
   readonly label: string
@@ -14,15 +16,9 @@ export interface WheelColumnOptions {
   readonly onChange: (value: number) => void
 }
 
-interface RenderedItem extends WheelItem {
-  readonly cycle: number
-  readonly sourceIndex: number
-}
-
 const WHEEL_ID_KEY = Symbol.for('@shelamkoff/date-picker/wheel-id')
 const SCROLL_SETTLE_DELAY = 90
-const WHEEL_RESPONSE_TIME = 48
-const WHEEL_POSITION_EPSILON = 0.25
+const POSITION_EPSILON = 0.5
 
 function nextWheelId(document: Document): number {
   const registry = document as Document & { [WHEEL_ID_KEY]?: number }
@@ -43,16 +39,12 @@ export class WheelColumn {
   #visibleItems: number
   #onChange: (value: number) => void
   #baseId: string
+  #motion: WheelMotion
   #settleTimer: ReturnType<typeof setTimeout> | undefined
-  #programmaticTarget: number | null = null
-  #wheelAnimationToken = 0
-  #wheelAnimating = false
-  #wheelPosition: number | null = null
-  #wheelTarget: number | null = null
-  #wheelLastFrame = 0
-  #commitAfterWheelAnimation = false
+  #writeGeneration = 0
   #interactive = false
   #destroyed = false
+  #motionPreference: MediaQueryList | null = null
 
   constructor(options: WheelColumnOptions) {
     const ownerDocument = options.document ?? globalThis.document
@@ -68,6 +60,7 @@ export class WheelColumn {
 
     const element = this.#document.createElement('div')
     element.className = 'sdp-wheel'
+    element.classList.toggle('is-looping', this.#loop)
     element.setAttribute('role', 'listbox')
     element.setAttribute('aria-orientation', 'vertical')
     element.setAttribute('aria-label', options.ariaLabel)
@@ -79,15 +72,26 @@ export class WheelColumn {
       '--sdp-spacer-height',
       `${((this.#visibleItems - 1) / 2) * this.#itemHeight}px`,
     )
+    this.element = element
+
+    const window = ownerDocument.defaultView
+    this.#motionPreference = window?.matchMedia?.('(prefers-reduced-motion: reduce)') ?? null
+    this.#motionPreference?.addEventListener?.('change', this.#handleMotionPreferenceChange)
+
+    this.#motion = new WheelMotion({
+      write: position => this.#writeVirtualPosition(position),
+      requestFrame: callback => this.#requestFrame(callback),
+      responseTime: 44,
+      epsilon: 0.5,
+      reducedMotion: this.#motionPreference?.matches ?? false,
+    })
 
     element.addEventListener('scroll', this.#handleScroll, { passive: true })
     element.addEventListener('wheel', this.#handleWheel, { passive: false })
-    element.addEventListener('pointerdown', this.#beginUserInteraction)
-    element.addEventListener('touchstart', this.#beginUserInteraction, { passive: true })
+    element.addEventListener('pointerdown', this.#beginNativeInteraction)
+    element.addEventListener('touchstart', this.#beginNativeInteraction, { passive: true })
     element.addEventListener('keydown', this.#handleKeydown)
     element.addEventListener('click', this.#handleClick)
-
-    this.element = element
   }
 
   setAriaLabel(label: string): void {
@@ -98,6 +102,7 @@ export class WheelColumn {
     if (this.#loop === loop) return
     this.cancelPendingSelection()
     this.#loop = loop
+    this.element.classList.toggle('is-looping', loop)
     this.#render()
     if (this.#interactive) this.#queueRecenter()
   }
@@ -132,28 +137,23 @@ export class WheelColumn {
   }
 
   setInteractive(interactive: boolean): void {
-    if (this.#destroyed) return
-    if (!interactive) {
-      this.#interactive = false
-      this.cancelPendingSelection()
-      return
-    }
-
-    this.#interactive = true
-    this.cancelPendingSelection()
-    this.#queueRecenter()
+    if (this.#destroyed || this.#interactive === interactive) return
+    this.#interactive = interactive
+    if (!interactive) this.cancelPendingSelection()
   }
 
   cancelPendingSelection(): void {
     this.#clearSettleTimer()
-    this.#cancelWheelAnimation()
-    this.#programmaticTarget = null
+    this.#motion.cancel()
+    this.#writeGeneration += 1
   }
 
   recenter(): void {
     if (this.#destroyed || !this.#interactive) return
-    this.cancelPendingSelection()
-    this.#scrollToValue()
+    const sourceIndex = this.#activeSourceIndex()
+    if (sourceIndex < 0) return
+    this.#clearSettleTimer()
+    this.#motion.reset(this.#centralPositionForSource(sourceIndex))
   }
 
   focus(): void {
@@ -165,222 +165,157 @@ export class WheelColumn {
     this.#destroyed = true
     this.#interactive = false
     this.cancelPendingSelection()
+    this.#motionPreference?.removeEventListener?.('change', this.#handleMotionPreferenceChange)
     this.element.removeEventListener('scroll', this.#handleScroll)
     this.element.removeEventListener('wheel', this.#handleWheel)
-    this.element.removeEventListener('pointerdown', this.#beginUserInteraction)
-    this.element.removeEventListener('touchstart', this.#beginUserInteraction)
+    this.element.removeEventListener('pointerdown', this.#beginNativeInteraction)
+    this.element.removeEventListener('touchstart', this.#beginNativeInteraction)
     this.element.removeEventListener('keydown', this.#handleKeydown)
     this.element.removeEventListener('click', this.#handleClick)
   }
 
   #render(): void {
-    this.cancelPendingSelection()
-    this.element.replaceChildren()
+    this.#clearSettleTimer()
+    this.#motion.cancel()
 
+    const fragment = this.#document.createDocumentFragment()
     const topSpacer = this.#document.createElement('div')
     topSpacer.className = 'sdp-wheel__spacer'
     topSpacer.setAttribute('aria-hidden', 'true')
-    this.element.append(topSpacer)
+    fragment.append(topSpacer)
 
-    for (const item of this.#renderedItems()) {
-      const option = this.#document.createElement('div')
-      option.id = `${this.#baseId}-option-${item.cycle}-${item.sourceIndex}`
-      option.className = 'sdp-wheel__option'
-      option.dataset.value = String(item.value)
-      option.dataset.sourceIndex = String(item.sourceIndex)
-      option.dataset.cycle = String(item.cycle)
-      option.textContent = item.label
+    const cycles = this.#cycleCount()
+    for (let cycle = 0; cycle < cycles; cycle += 1) {
+      this.#items.forEach((item, sourceIndex) => {
+        const option = this.#document.createElement('div')
+        option.id = `${this.#baseId}-option-${cycle}-${sourceIndex}`
+        option.className = 'sdp-wheel__option'
+        option.dataset.value = String(item.value)
+        option.dataset.sourceIndex = String(sourceIndex)
+        option.dataset.cycle = String(cycle)
+        option.textContent = item.label
 
-      const semantic = !this.#loop || item.cycle === 1
-      if (semantic) {
-        option.setAttribute('role', 'option')
-        option.setAttribute('aria-selected', String(item.value === this.#value))
-        if (item.disabled) option.setAttribute('aria-disabled', 'true')
-      }
-      else {
-        option.setAttribute('aria-hidden', 'true')
-      }
+        const semantic = cycles === 1 || cycle === 1
+        if (semantic) {
+          option.setAttribute('role', 'option')
+          option.setAttribute('aria-selected', String(item.value === this.#value))
+          if (item.disabled) option.setAttribute('aria-disabled', 'true')
+        }
+        else {
+          option.setAttribute('aria-hidden', 'true')
+        }
 
-      if (item.value === this.#value) option.classList.add('is-selected')
-      if (item.disabled) option.classList.add('is-disabled')
-      this.element.append(option)
+        if (item.value === this.#value) option.classList.add('is-selected')
+        if (item.disabled) option.classList.add('is-disabled')
+        fragment.append(option)
+      })
     }
 
     const bottomSpacer = this.#document.createElement('div')
     bottomSpacer.className = 'sdp-wheel__spacer'
     bottomSpacer.setAttribute('aria-hidden', 'true')
-    this.element.append(bottomSpacer)
+    fragment.append(bottomSpacer)
 
+    this.element.replaceChildren(fragment)
     this.#updateActiveDescendant()
   }
 
-  #renderedItems(): RenderedItem[] {
-    const cycles = this.#loop && this.#items.length > 1 ? 3 : 1
-    const result: RenderedItem[] = []
-    for (let cycle = 0; cycle < cycles; cycle += 1) {
-      this.#items.forEach((item, sourceIndex) => result.push({ ...item, cycle, sourceIndex }))
-    }
-    return result
+  #cycleCount(): number {
+    return this.#loop && this.#items.length > 1 ? 3 : 1
   }
 
   #activeSourceIndex(): number {
     return this.#items.findIndex(item => item.value === this.#value)
   }
 
-  #renderIndexForSource(sourceIndex: number): number {
-    return this.#loop && this.#items.length > 1
+  #centralPositionForSource(sourceIndex: number): number {
+    const index = this.#loop && this.#items.length > 1
       ? this.#items.length + sourceIndex
       : sourceIndex
+    return index * this.#itemHeight
   }
 
-  #scrollToValue(): void {
-    const sourceIndex = this.#activeSourceIndex()
-    if (sourceIndex < 0) return
-    this.#clearSettleTimer()
-    this.#cancelWheelAnimation()
-    const target = this.#renderIndexForSource(sourceIndex) * this.#itemHeight
-    this.#programmaticTarget = target
-    this.element.scrollTo({ top: target, behavior: 'auto' })
-    this.#requestFrame(() => {
-      if (this.#programmaticTarget === target) this.#programmaticTarget = null
-    })
+  #cycleHeight(): number {
+    return this.#items.length * this.#itemHeight
   }
 
-  #normalizeScrollTop(scrollTop: number): number {
-    if (!Number.isFinite(scrollTop)) return this.element.scrollTop
-    if (!this.#loop || this.#items.length <= 1) return scrollTop
-
-    const cycleHeight = this.#items.length * this.#itemHeight
-    const offset = ((scrollTop - cycleHeight) % cycleHeight + cycleHeight) % cycleHeight
+  #normalizePhysicalPosition(position: number): number {
+    if (!Number.isFinite(position)) return this.element.scrollTop
+    if (!this.#loop || this.#items.length <= 1) return position
+    const cycleHeight = this.#cycleHeight()
+    const offset = positiveModulo(position - cycleHeight, cycleHeight)
     return cycleHeight + offset
   }
 
-  #rebaseLoopScrollPosition(): boolean {
-    if (!this.#loop || this.#items.length <= 1) return false
+  #physicalToVirtual(physical: number, reference: number): number {
+    if (!this.#loop || this.#items.length <= 1) return physical
+    const normalized = this.#normalizePhysicalPosition(physical)
+    const cycleHeight = this.#cycleHeight()
+    const cycle = Math.round((reference - normalized) / cycleHeight)
+    return normalized + cycle * cycleHeight
+  }
 
-    const current = this.element.scrollTop
-    const target = this.#normalizeScrollTop(current)
-    if (Math.abs(target - current) <= 1) return false
-
-    this.#programmaticTarget = null
-    this.element.scrollTop = target
-    return true
+  #writeVirtualPosition(position: number): void {
+    if (this.#destroyed) return
+    const physical = this.#normalizePhysicalPosition(position)
+    const generation = ++this.#writeGeneration
+    this.element.scrollTop = physical
+    this.#requestFrame(() => {
+      if (this.#writeGeneration === generation) this.#writeGeneration = 0
+    })
   }
 
   #maximumScrollTop(): number {
     return Math.max(0, this.element.scrollHeight - this.element.clientHeight)
   }
 
-  #clampWheelPosition(position: number): number {
-    if (!Number.isFinite(position)) return this.element.scrollTop
+  #clampVirtualPosition(position: number): number {
+    if (!Number.isFinite(position)) return this.#motion.target
     if (this.#loop && this.#items.length > 1) return position
     return Math.min(this.#maximumScrollTop(), Math.max(0, position))
   }
 
   #normalizedWheelDelta(event: WheelEvent): number {
     const pixels = event.deltaMode === 1
-      ? event.deltaY * 16
+      ? event.deltaY * this.#itemHeight
       : event.deltaMode === 2
         ? event.deltaY * Math.max(this.#itemHeight, this.element.clientHeight)
         : event.deltaY
 
     if (!Number.isFinite(pixels) || pixels === 0) return 0
-
-    // Classic mouse wheels commonly report jumps of 100–120 CSS pixels.
-    // Compress large impulses to roughly one row while preserving the small,
-    // high-resolution deltas produced by touchpads.
     const magnitude = this.#itemHeight * Math.tanh(Math.abs(pixels) / this.#itemHeight)
     return Math.sign(pixels) * magnitude
   }
 
-  #cancelWheelAnimation(): void {
-    this.#wheelAnimationToken += 1
-    this.#wheelAnimating = false
-    this.#wheelPosition = null
-    this.#wheelTarget = null
-    this.#wheelLastFrame = 0
-    this.#commitAfterWheelAnimation = false
+  #canConsumeDelta(delta: number): boolean {
+    if (this.#loop && this.#items.length > 1) return true
+    const target = this.#motion.target
+    const next = this.#clampVirtualPosition(target + delta)
+    return Math.abs(next - target) > POSITION_EPSILON
   }
 
-  #queueWheelDelta(delta: number): void {
-    if (!Number.isFinite(delta) || delta === 0) return
-
-    if (this.#wheelPosition === null || this.#wheelTarget === null) {
-      const current = this.element.scrollTop
-      this.#wheelPosition = current
-      this.#wheelTarget = current
+  #sourceIndexForPosition(position: number): number {
+    if (!this.#items.length) return -1
+    const rawIndex = Math.round(position / this.#itemHeight)
+    if (this.#loop && this.#items.length > 1) {
+      const sourceIndex = positiveModulo(rawIndex, this.#items.length)
+      return nearestEnabledSourceIndex(this.#items, sourceIndex, true)
     }
-
-    this.#wheelTarget = this.#clampWheelPosition(this.#wheelTarget + delta)
-    this.#startWheelAnimation()
+    const sourceIndex = Math.min(this.#items.length - 1, Math.max(0, rawIndex))
+    return nearestEnabledSourceIndex(this.#items, sourceIndex, false)
   }
 
-  #startWheelAnimation(): void {
-    if (this.#wheelAnimating) return
-    if (this.#wheelPosition === null || this.#wheelTarget === null) return
-
-    this.#wheelAnimating = true
-    this.#wheelLastFrame = 0
-    const token = ++this.#wheelAnimationToken
-    this.#requestFrame(timestamp => this.#animateWheel(token, timestamp))
-  }
-
-  #animateWheel(token: number, timestamp: number): void {
-    if (
-      token !== this.#wheelAnimationToken
-      || !this.#wheelAnimating
-      || this.#destroyed
-      || !this.#interactive
-      || this.#wheelPosition === null
-      || this.#wheelTarget === null
-    ) {
-      return
-    }
-
-    const elapsed = this.#wheelLastFrame === 0
-      ? 16.67
-      : Math.min(50, Math.max(1, timestamp - this.#wheelLastFrame))
-    this.#wheelLastFrame = timestamp
-
-    const distance = this.#wheelTarget - this.#wheelPosition
-    const interpolation = 1 - Math.exp(-elapsed / WHEEL_RESPONSE_TIME)
-    const next = Math.abs(distance) <= WHEEL_POSITION_EPSILON
-      ? this.#wheelTarget
-      : this.#wheelPosition + distance * interpolation
-
-    this.#wheelPosition = next
-    const physical = this.#normalizeScrollTop(next)
-    this.#programmaticTarget = physical
-    this.element.scrollTop = physical
-
-    if (next !== this.#wheelTarget) {
-      this.#requestFrame(nextTimestamp => this.#animateWheel(token, nextTimestamp))
-      return
-    }
-
-    this.#wheelAnimating = false
-    this.#wheelLastFrame = 0
-    this.#wheelPosition = physical
-    this.#wheelTarget = physical
-
-    if (this.#commitAfterWheelAnimation) {
-      this.#commitAfterWheelAnimation = false
-      this.#commitSettledSelection()
-    }
-  }
-
-  #alignedWheelTarget(position: number, renderedIndex: number): number {
-    const alignedPhysical = renderedIndex * this.#itemHeight
-    if (!this.#loop || this.#items.length <= 1) return alignedPhysical
-
-    const cycleHeight = this.#items.length * this.#itemHeight
-    const cycle = Math.round((position - alignedPhysical) / cycleHeight)
-    return alignedPhysical + cycle * cycleHeight
+  #alignedVirtualPosition(position: number, sourceIndex: number): number {
+    const base = sourceIndex * this.#itemHeight
+    if (!this.#loop || this.#items.length <= 1) return base
+    const cycleHeight = this.#cycleHeight()
+    const cycle = Math.round((position - base) / cycleHeight)
+    return base + cycle * cycleHeight
   }
 
   #queueRecenter(): void {
     queueMicrotask(() => {
-      if (!this.#destroyed && this.#interactive) this.#scrollToValue()
+      if (!this.#destroyed && this.#interactive) this.recenter()
     })
   }
 
@@ -399,20 +334,22 @@ export class WheelColumn {
     this.element.classList.remove('is-settling')
   }
 
-  #scheduleSettle(): void {
+  #scheduleSettle(generation: number): void {
     this.#clearSettleTimer()
     this.element.classList.add('is-settling')
     this.#settleTimer = setTimeout(() => {
       this.#settleTimer = undefined
       this.element.classList.remove('is-settling')
-      if (this.#interactive && !this.#destroyed) this.#settleSelection()
+      if (!this.#interactive || this.#destroyed || generation !== this.#motion.generation) return
+      this.#settleSelection(generation)
     }, SCROLL_SETTLE_DELAY)
   }
 
-  #beginUserInteraction = (): void => {
+  #beginNativeInteraction = (): void => {
     if (!this.#interactive || this.#destroyed) return
-    this.cancelPendingSelection()
-    if (activeElementFor(this.element) !== this.element) this.focus()
+    this.#clearSettleTimer()
+    const virtual = this.#physicalToVirtual(this.element.scrollTop, this.#motion.position)
+    this.#motion.adopt(virtual)
   }
 
   #handleWheel = (event: WheelEvent): void => {
@@ -427,29 +364,55 @@ export class WheelColumn {
     }
 
     const delta = this.#normalizedWheelDelta(event)
-    if (delta === 0) return
+    if (delta === 0 || !this.#canConsumeDelta(delta)) return
 
     event.preventDefault()
     this.#clearSettleTimer()
-    if (activeElementFor(this.element) !== this.element) this.focus()
-    this.#queueWheelDelta(delta)
-    this.#scheduleSettle()
+    const generation = this.#motion.input(delta, position => this.#clampVirtualPosition(position))
+    this.#scheduleSettle(generation)
   }
 
   #handleScroll = (): void => {
-    if (!this.#interactive || this.#destroyed) return
-    if (this.#wheelAnimating) return
+    if (!this.#interactive || this.#destroyed || this.#motion.isMoving || this.#writeGeneration !== 0) return
 
-    if (this.#programmaticTarget !== null) {
-      this.#programmaticTarget = null
+    const current = this.element.scrollTop
+    const virtual = this.#physicalToVirtual(current, this.#motion.position)
+    const generation = this.#motion.adopt(virtual)
+
+    if (this.#loop && this.#items.length > 1) {
+      const normalized = this.#normalizePhysicalPosition(virtual)
+      if (Math.abs(normalized - current) > POSITION_EPSILON) this.#writeVirtualPosition(virtual)
+    }
+
+    this.#scheduleSettle(generation)
+  }
+
+  #settleSelection(generation: number): void {
+    if (generation !== this.#motion.generation || !this.#items.length) return
+    const position = this.#motion.target
+    const sourceIndex = this.#sourceIndexForPosition(position)
+    if (sourceIndex < 0) return
+
+    const target = this.#clampVirtualPosition(this.#alignedVirtualPosition(position, sourceIndex))
+    this.#motion.snap(target, generation, () => this.#commitSettledSelection(sourceIndex, generation))
+  }
+
+  #commitSettledSelection(sourceIndex: number, generation: number): void {
+    if (
+      generation !== this.#motion.generation
+      || !this.#interactive
+      || this.#destroyed
+    ) {
       return
     }
 
-    this.#wheelPosition = null
-    this.#wheelTarget = null
-    this.#commitAfterWheelAnimation = false
-    this.#rebaseLoopScrollPosition()
-    this.#scheduleSettle()
+    const item = this.#items[sourceIndex]
+    if (!item || item.disabled) return
+
+    const changed = this.#value !== item.value
+    this.#value = item.value
+    this.#updateSelectionState()
+    if (changed) this.#onChange(item.value)
   }
 
   #handleClick = (event: MouseEvent): void => {
@@ -457,55 +420,10 @@ export class WheelColumn {
     const option = findOptionFromEvent(event, this.element)
     if (!option) return
 
-    this.cancelPendingSelection()
+    const sourceIndex = Number(option.dataset.sourceIndex)
+    if (!Number.isInteger(sourceIndex)) return
     this.focus()
-    const value = Number(option.dataset.value)
-    if (!Number.isFinite(value)) return
-    const sourceIndex = this.#items.findIndex(item => item.value === value && !item.disabled)
-    if (sourceIndex < 0) return
-
-    if (this.#value === value) this.#confirmCurrent()
-    else this.#chooseSourceIndex(sourceIndex)
-  }
-
-  #settleSelection(): void {
-    if (!this.#interactive || this.#items.length === 0) return
-
-    const position = this.#wheelTarget ?? this.#wheelPosition ?? this.element.scrollTop
-    const physical = this.#normalizeScrollTop(position)
-    const rendered = this.#renderedItems()
-    const rawIndex = Math.round(physical / this.#itemHeight)
-    const index = nearestEnabledIndex(rendered, rawIndex)
-    if (index < 0) return
-
-    if (this.#wheelPosition === null || this.#wheelTarget === null) {
-      this.#wheelPosition = this.element.scrollTop
-      this.#wheelTarget = this.element.scrollTop
-    }
-
-    this.#wheelTarget = this.#clampWheelPosition(this.#alignedWheelTarget(position, index))
-    this.#commitAfterWheelAnimation = true
-    this.#startWheelAnimation()
-  }
-
-  #commitSettledSelection(): void {
-    if (!this.#interactive || this.#items.length === 0) return
-
-    const rendered = this.#renderedItems()
-    const rawIndex = Math.round(this.element.scrollTop / this.#itemHeight)
-    const index = nearestEnabledIndex(rendered, rawIndex)
-    const item = rendered[index]
-    if (!item) return
-
-    const changed = this.#value !== item.value
-    this.#value = item.value
-    this.#updateSelectionState()
-
-    const physical = this.#normalizeScrollTop(index * this.#itemHeight)
-    this.#wheelPosition = physical
-    this.#wheelTarget = physical
-
-    if (changed) this.#onChange(item.value)
+    this.#chooseSourceIndex(sourceIndex)
   }
 
   #enabledSourceIndexes(): number[] {
@@ -518,24 +436,13 @@ export class WheelColumn {
   #chooseSourceIndex(sourceIndex: number): void {
     const item = this.#items[sourceIndex]
     if (!item || item.disabled) return
-    this.cancelPendingSelection()
 
+    this.#clearSettleTimer()
     const changed = this.#value !== item.value
     this.#value = item.value
     this.#updateSelectionState()
-    if (this.#interactive) this.#queueRecenter()
-
+    this.#motion.reset(this.#centralPositionForSource(sourceIndex))
     if (changed) this.#onChange(item.value)
-  }
-
-  #confirmCurrent(): void {
-    const sourceIndex = this.#activeSourceIndex()
-    const item = this.#items[sourceIndex]
-    if (!item || item.disabled) return
-    this.cancelPendingSelection()
-    this.#updateSelectionState()
-    if (this.#interactive) this.#queueRecenter()
-    this.#onChange(item.value)
   }
 
   #move(step: number): void {
@@ -549,7 +456,7 @@ export class WheelColumn {
     }
 
     let nextPosition = currentPosition + step
-    if (this.#loop) nextPosition = ((nextPosition % enabled.length) + enabled.length) % enabled.length
+    if (this.#loop) nextPosition = positiveModulo(nextPosition, enabled.length)
     else nextPosition = Math.min(enabled.length - 1, Math.max(0, nextPosition))
 
     const sourceIndex = enabled[nextPosition]
@@ -579,17 +486,25 @@ export class WheelColumn {
       case 'Enter':
       case ' ':
         event.preventDefault()
-        this.#confirmCurrent()
+        this.recenter()
         break
     }
   }
 
   #updateSelectionState(): void {
-    const options = this.element.querySelectorAll<HTMLElement>('.sdp-wheel__option')
-    for (const option of options) {
-      const selected = Number(option.dataset.value) === this.#value
-      option.classList.toggle('is-selected', selected)
-      if (option.getAttribute('role') === 'option') option.setAttribute('aria-selected', String(selected))
+    for (const option of this.element.querySelectorAll<HTMLElement>('.sdp-wheel__option.is-selected')) {
+      option.classList.remove('is-selected')
+    }
+    for (const option of this.element.querySelectorAll<HTMLElement>('[role="option"][aria-selected="true"]')) {
+      option.setAttribute('aria-selected', 'false')
+    }
+
+    const sourceIndex = this.#activeSourceIndex()
+    if (sourceIndex >= 0) {
+      for (const option of this.element.querySelectorAll<HTMLElement>(`[data-source-index="${sourceIndex}"]`)) {
+        option.classList.add('is-selected')
+        if (option.getAttribute('role') === 'option') option.setAttribute('aria-selected', 'true')
+      }
     }
     this.#updateActiveDescendant()
   }
@@ -603,15 +518,10 @@ export class WheelColumn {
     const cycle = this.#loop && this.#items.length > 1 ? 1 : 0
     this.element.setAttribute('aria-activedescendant', `${this.#baseId}-option-${cycle}-${sourceIndex}`)
   }
-}
 
-function activeElementFor(element: Element): Element | null {
-  const root = element.getRootNode?.()
-  if (root && typeof root === 'object' && 'activeElement' in root) {
-    const active = (root as Document | ShadowRoot).activeElement
-    if (active) return active
+  #handleMotionPreferenceChange = (event: MediaQueryListEvent): void => {
+    this.#motion.setReducedMotion(event.matches)
   }
-  return element.ownerDocument?.activeElement ?? null
 }
 
 function findOptionFromEvent(event: MouseEvent, root: HTMLElement): HTMLElement | null {
@@ -654,16 +564,24 @@ function normalizeVisibleItems(value: number | undefined): number {
   return count % 2 === 0 ? Math.min(15, count + 1) : count
 }
 
-function nearestEnabledIndex(items: readonly RenderedItem[], start: number): number {
+function nearestEnabledSourceIndex(
+  items: readonly WheelItem[],
+  start: number,
+  loop: boolean,
+): number {
   if (!items.length) return -1
   const clamped = Math.min(items.length - 1, Math.max(0, start))
   if (!items[clamped]?.disabled) return clamped
 
   for (let distance = 1; distance < items.length; distance += 1) {
-    const before = clamped - distance
-    const after = clamped + distance
-    if (before >= 0 && !items[before]?.disabled) return before
-    if (after < items.length && !items[after]?.disabled) return after
+    const before = loop ? positiveModulo(clamped - distance, items.length) : clamped - distance
+    const after = loop ? positiveModulo(clamped + distance, items.length) : clamped + distance
+    if (before >= 0 && before < items.length && !items[before]?.disabled) return before
+    if (after >= 0 && after < items.length && !items[after]?.disabled) return after
   }
   return -1
+}
+
+function positiveModulo(value: number, divisor: number): number {
+  return ((value % divisor) + divisor) % divisor
 }

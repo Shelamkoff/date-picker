@@ -108,6 +108,8 @@ export class DatePicker {
   #hourWheel: WheelColumn
   #minuteWheel: WheelColumn
   #documentListening = false
+  #viewportListening = false
+  #positionFramePending = false
   #destroyed = false
   #valueId: string
   #popoverId: string
@@ -171,6 +173,7 @@ export class DatePicker {
     popover.id = this.#popoverId
     popover.className = 'sdp-datepicker__popover'
     popover.setAttribute('role', 'dialog')
+    popover.setAttribute('aria-modal', 'false')
     root.append(popover)
     this.#popover = popover
 
@@ -278,11 +281,14 @@ export class DatePicker {
   open(): void {
     this.#assertAlive()
     if (this.#view.disabled) return
+
     this.#cancelWheelGestures()
     this.#controller.open()
-    this.#setWheelsInteractive(true)
     this.#render()
+    this.#setWheelsInteractive(true)
     this.#recenterOpenWheels()
+    this.#queuePopoverPosition()
+
     queueMicrotask(() => {
       if (!this.#destroyed && this.#controller.isOpen) this.#dayWheel.focus()
     })
@@ -302,7 +308,7 @@ export class DatePicker {
 
   clear(): void {
     this.#assertAlive()
-    if (this.#view.disabled) return
+    if (this.#view.disabled || this.#controller.value === null) return
 
     const activeBefore = activeElementFor(this.element)
     const restoreFocus = isNodeLike(activeBefore) && this.element.contains(activeBefore)
@@ -326,11 +332,13 @@ export class DatePicker {
   selectNow(): void {
     this.#assertAlive()
     if (this.#view.disabled) return
+
+    const before = this.#controller.value?.getTime() ?? null
     this.#cancelWheelGestures()
     const next = this.#controller.selectNow()
     this.#render()
     this.#recenterOpenWheels()
-    this.#publishChange(next, 'now')
+    if (before !== next.getTime()) this.#publishChange(next, 'now')
   }
 
   focus(): void {
@@ -342,6 +350,7 @@ export class DatePicker {
     if (this.#destroyed) return
     this.#destroyed = true
     this.#detachDocumentPointer()
+    this.#detachViewportListeners()
     this.#setWheelsInteractive(false)
     this.#dayWheel.destroy()
     this.#monthWheel.destroy()
@@ -368,12 +377,16 @@ export class DatePicker {
 
   #selectPart(part: DatePart, value: number): void {
     if (this.#destroyed || this.#view.disabled || !this.#controller.isOpen) return
+
+    const before = this.#controller.value?.getTime() ?? null
     if (!this.#controller.select(part, value)) {
       this.#wheelForPart(part).recenter()
       return
     }
+
+    const next = this.#controller.value
     this.#render()
-    this.#publishChange(this.#controller.value, 'select')
+    if (next && before !== next.getTime()) this.#publishChange(next, 'select')
   }
 
   #wheelForPart(part: DatePart): WheelColumn {
@@ -475,9 +488,11 @@ export class DatePicker {
       this.#hourWheel.element.hidden = !showTime
       this.#colon.hidden = !showTime
       this.#minuteWheel.element.hidden = !showTime
+      this.#queuePopoverPosition()
     }
     else {
       this.#setWheelsInteractive(false)
+      this.#resetPopoverPosition()
     }
 
     this.#nowButton.hidden = !this.#view.showNow
@@ -485,7 +500,14 @@ export class DatePicker {
     const nowText = this.#nowButton.querySelector<HTMLElement>('.sdp-datepicker__now-label')
     if (nowText) nowText.textContent = this.#view.nowLabel
 
-    open ? this.#attachDocumentPointer() : this.#detachDocumentPointer()
+    if (open) {
+      this.#attachDocumentPointer()
+      this.#attachViewportListeners()
+    }
+    else {
+      this.#detachDocumentPointer()
+      this.#detachViewportListeners()
+    }
   }
 
   #cancelWheelGestures(): void {
@@ -513,6 +535,51 @@ export class DatePicker {
     this.#minuteWheel.setInteractive(interactive)
   }
 
+  #queuePopoverPosition(): void {
+    if (this.#positionFramePending || !this.#controller.isOpen || this.#destroyed) return
+    this.#positionFramePending = true
+    const frame = this.#document.defaultView?.requestAnimationFrame
+    const callback = (): void => {
+      this.#positionFramePending = false
+      this.#positionPopover()
+    }
+    if (typeof frame === 'function') frame.call(this.#document.defaultView, callback)
+    else queueMicrotask(callback)
+  }
+
+  #positionPopover(): void {
+    if (!this.#controller.isOpen || this.#popover.hidden || this.#destroyed) return
+    const window = this.#document.defaultView
+    if (!window) return
+
+    this.#resetPopoverPosition()
+    const anchor = this.element.getBoundingClientRect()
+    const popover = this.#popover.getBoundingClientRect()
+    const gap = 7
+    const spaceBelow = window.innerHeight - anchor.bottom
+    const spaceAbove = anchor.top
+
+    if (spaceBelow < popover.height + gap && spaceAbove > spaceBelow) {
+      this.#popover.style.top = 'auto'
+      this.#popover.style.bottom = 'calc(100% + 0.4rem)'
+    }
+
+    const positioned = this.#popover.getBoundingClientRect()
+    const viewportPadding = 8
+    let shift = 0
+    if (positioned.left < viewportPadding) shift += viewportPadding - positioned.left
+    if (positioned.right > window.innerWidth - viewportPadding) {
+      shift -= positioned.right - (window.innerWidth - viewportPadding)
+    }
+    if (shift !== 0) this.#popover.style.transform = `translateX(${shift}px)`
+  }
+
+  #resetPopoverPosition(): void {
+    this.#popover.style.removeProperty('top')
+    this.#popover.style.removeProperty('bottom')
+    this.#popover.style.removeProperty('transform')
+  }
+
   #handleTriggerClick = (): void => this.toggle()
   #handleClearClick = (): void => this.clear()
   #handleNowClick = (): void => this.selectNow()
@@ -527,11 +594,14 @@ export class DatePicker {
     })
   }
 
-  #handleFocusOut = (event: FocusEvent): void => {
+  #handleFocusOut = (): void => {
     if (!this.#controller.isOpen) return
-    const next = event.relatedTarget
-    if (isNodeLike(next) && this.element.contains(next)) return
-    this.close()
+    queueMicrotask(() => {
+      if (this.#destroyed || !this.#controller.isOpen) return
+      const active = activeElementFor(this.element)
+      if (isNodeLike(active) && this.element.contains(active)) return
+      this.close()
+    })
   }
 
   #handleDocumentPointerDown = (event: PointerEvent): void => {
@@ -541,6 +611,8 @@ export class DatePicker {
     if (isNodeLike(target) && this.element.contains(target)) return
     this.close()
   }
+
+  #handleViewportChange = (): void => this.#queuePopoverPosition()
 
   #attachDocumentPointer(): void {
     if (this.#documentListening) return
@@ -552,6 +624,22 @@ export class DatePicker {
     if (!this.#documentListening) return
     this.#document.removeEventListener('pointerdown', this.#handleDocumentPointerDown, true)
     this.#documentListening = false
+  }
+
+  #attachViewportListeners(): void {
+    const window = this.#document.defaultView
+    if (!window || this.#viewportListening) return
+    window.addEventListener('resize', this.#handleViewportChange, { passive: true })
+    window.addEventListener('scroll', this.#handleViewportChange, { passive: true, capture: true })
+    this.#viewportListening = true
+  }
+
+  #detachViewportListeners(): void {
+    const window = this.#document.defaultView
+    if (!window || !this.#viewportListening) return
+    window.removeEventListener('resize', this.#handleViewportChange)
+    window.removeEventListener('scroll', this.#handleViewportChange, true)
+    this.#viewportListening = false
   }
 }
 

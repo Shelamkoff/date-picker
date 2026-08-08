@@ -27,7 +27,8 @@
   "scripts": {
     "build": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prepack": "npm run build"
+    "test": "npm run build && node --test tests/*.test.mjs",
+    "prepack": "npm run test"
   },
   "devDependencies": {
     "typescript": "5.8.3"
@@ -35,5 +36,6 @@
   "engines": {
     "node": ">=18"
   },
+  "packageManager": "npm@10.9.2",
   "license": "MIT"
 }

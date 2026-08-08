@@ -12,7 +12,6 @@ import {
   nearestExistingCivilDay,
   normalizeBounds,
   normalizePickerDate,
-  partsToDate,
   rangeIntersects,
   yearInterval,
   yearWindow,
@@ -29,6 +28,8 @@ import type {
   ResolvedDatePickerOptions,
 } from './types.js'
 
+const MAX_YEAR_WINDOW = 200
+
 const DEFAULT_OPTIONS: Omit<ResolvedDatePickerOptions, 'now'> = {
   enableTime: false,
   minDate: null,
@@ -38,9 +39,26 @@ const DEFAULT_OPTIONS: Omit<ResolvedDatePickerOptions, 'now'> = {
   minuteStep: 1,
 }
 
+interface ResolvedConfiguration {
+  readonly options: ResolvedDatePickerOptions
+  readonly bounds: DateBounds
+}
+
+interface ColumnCache {
+  key: string
+  values: readonly number[]
+}
+
+interface SnapshotCache {
+  revision: number
+  snapshot: DatePickerSnapshot
+}
+
+type MinuteResolver = (hour: number, minute: number) => readonly Date[]
+
 function sanitizeWindow(value: number | undefined, fallback: number): number {
   if (value === undefined || !Number.isFinite(value)) return fallback
-  return Math.min(1000, Math.max(0, Math.trunc(value)))
+  return Math.min(MAX_YEAR_WINDOW, Math.max(0, Math.trunc(value)))
 }
 
 function sanitizeMinuteStep(value: number | undefined): number {
@@ -60,10 +78,10 @@ function resolveDateOption(
   return cloneDate(value)
 }
 
-function resolveOptions(
+function resolveConfiguration(
   previous: ResolvedDatePickerOptions | null,
   patch: DatePickerOptions,
-): ResolvedDatePickerOptions {
+): ResolvedConfiguration {
   const enableTime = patch.enableTime ?? previous?.enableTime ?? DEFAULT_OPTIONS.enableTime
   const minDate = resolveDateOption(patch.minDate, previous?.minDate, 'minDate')
   const maxDate = resolveDateOption(patch.maxDate, previous?.maxDate, 'maxDate')
@@ -72,9 +90,7 @@ function resolveOptions(
     : previous?.now ?? (() => new Date())
   if (typeof now !== 'function') throw new TypeError('now must be a function or null')
 
-  normalizeBounds(minDate, maxDate, enableTime)
-
-  return {
+  const options: ResolvedDatePickerOptions = {
     enableTime,
     minDate,
     maxDate,
@@ -83,36 +99,66 @@ function resolveOptions(
     minuteStep: sanitizeMinuteStep(patch.minuteStep ?? previous?.minuteStep),
     now,
   }
+
+  return {
+    options,
+    bounds: normalizeBounds(minDate, maxDate, enableTime),
+  }
 }
 
 function cloneNullable(date: Date | null): Date | null {
   return date ? cloneDate(date) : null
 }
 
-function boundsForOptions(options: ResolvedDatePickerOptions): DateBounds {
-  return normalizeBounds(options.minDate, options.maxDate, options.enableTime)
+function sameCivilDate(date: Date, year: number, month: number, day: number): boolean {
+  return date.getFullYear() === year
+    && date.getMonth() + 1 === month
+    && date.getDate() === day
 }
 
-function normalizedSeedForOptions(date: Date, options: ResolvedDatePickerOptions): Date {
-  return clampDate(normalizePickerDate(date, options.enableTime), boundsForOptions(options))
+function sameInstant(left: Date | null, right: Date | null): boolean {
+  if (left === null || right === null) return left === right
+  return left.getTime() === right.getTime()
+}
+
+function nearestCandidate(candidates: readonly Date[], reference: number): Date | null {
+  let best: Date | null = null
+  for (const candidate of candidates) {
+    if (!best || Math.abs(candidate.getTime() - reference) < Math.abs(best.getTime() - reference)) {
+      best = candidate
+    }
+  }
+  return best ? cloneDate(best) : null
 }
 
 export class DatePickerController {
   #options: ResolvedDatePickerOptions
+  #boundsValue: DateBounds
   #value: Date | null
   #draft: Date
   #open = false
   #listeners = new Set<DatePickerListener>()
+  #revision = 0
+  #snapshotCache: SnapshotCache | null = null
+  #yearsCache: ColumnCache | null = null
+  #monthsCache: ColumnCache | null = null
+  #daysCache: ColumnCache | null = null
+  #hoursCache: ColumnCache | null = null
+  #minutesCache: ColumnCache | null = null
 
   constructor(options: DatePickerOptions = {}, value: Date | null = null) {
-    this.#options = resolveOptions(null, options)
+    const configuration = resolveConfiguration(null, options)
+    this.#options = configuration.options
+    this.#boundsValue = configuration.bounds
+
     if (value != null && !isValidDate(value)) {
       throw new RangeError('value must be null or a valid Date')
     }
+
     const seed = value ?? this.#readNow()
-    const draft = normalizedSeedForOptions(seed, this.#options)
-    this.#value = cloneNullable(value)
-    this.#draft = draft
+    const normalized = this.#normalizeSelectableSeed(seed, this.#options, this.#boundsValue)
+    this.#value = value === null ? null : cloneDate(normalized)
+    this.#draft = cloneDate(normalized)
   }
 
   subscribe(listener: DatePickerListener): () => void {
@@ -134,19 +180,22 @@ export class DatePickerController {
   }
 
   get isOutOfRange(): boolean {
-    return this.#isOutOfRange(this.#bounds())
+    return this.#isOutOfRange()
   }
 
   get snapshot(): DatePickerSnapshot {
-    const bounds = this.#bounds()
+    if (this.#snapshotCache?.revision === this.#revision) {
+      return cloneSnapshot(this.#snapshotCache.snapshot)
+    }
+
     const parts = dateToParts(this.#draft)
-    return {
+    const snapshot: DatePickerSnapshot = {
       value: cloneNullable(this.#value),
       draft: cloneDate(this.#draft),
       parts,
-      columns: this.#columns(parts, bounds),
+      columns: this.#columns(parts),
       isOpen: this.#open,
-      isOutOfRange: this.#isOutOfRange(bounds),
+      isOutOfRange: this.#isOutOfRange(),
       options: {
         enableTime: this.#options.enableTime,
         minDate: cloneNullable(this.#options.minDate),
@@ -156,6 +205,8 @@ export class DatePickerController {
         minuteStep: this.#options.minuteStep,
       },
     }
+    this.#snapshotCache = { revision: this.#revision, snapshot }
+    return cloneSnapshot(snapshot)
   }
 
   setValue(value: Date | null): void {
@@ -163,10 +214,13 @@ export class DatePickerController {
       throw new RangeError('value must be null or a valid Date')
     }
 
-    const nextValue = cloneNullable(value)
-    const nextDraft = this.#normalizedSeed(nextValue ?? this.#draft)
-    this.#value = nextValue
-    this.#draft = nextDraft
+    const normalized = value === null
+      ? this.#normalizeSelectableSeed(this.#draft, this.#options, this.#boundsValue)
+      : this.#normalizeSelectableSeed(value, this.#options, this.#boundsValue)
+
+    this.#value = value === null ? null : cloneDate(normalized)
+    this.#draft = cloneDate(normalized)
+    this.#touch()
     this.#emit({ type: 'state', reason: 'external' })
   }
 
@@ -174,49 +228,56 @@ export class DatePickerController {
     this.configure(options)
   }
 
-  /**
-   * Atomically applies option changes and, when supplied, an external value.
-   * Validation and local-time normalization complete before observable state is committed.
-   */
   configure(options: DatePickerOptions, state?: { readonly value: Date | null }): void {
-    const nextOptions = resolveOptions(this.#options, options)
+    const configuration = resolveConfiguration(this.#options, options)
     const hasValue = state !== undefined
     const requestedValue = hasValue ? state.value : this.#value
     if (requestedValue != null && !isValidDate(requestedValue)) {
       throw new RangeError('value must be null or a valid Date')
     }
 
-    const nextValue = cloneNullable(requestedValue)
-    const source = nextValue ?? this.#draft
-    const nextDraft = normalizedSeedForOptions(source, nextOptions)
+    const source = requestedValue ?? this.#draft
+    const normalized = this.#normalizeSelectableSeed(
+      source,
+      configuration.options,
+      configuration.bounds,
+    )
 
-    this.#options = nextOptions
-    if (hasValue) this.#value = nextValue
-    this.#draft = nextDraft
+    this.#options = configuration.options
+    this.#boundsValue = configuration.bounds
+    if (hasValue) this.#value = requestedValue === null ? null : cloneDate(normalized)
+    else if (this.#value) this.#value = cloneDate(normalized)
+    this.#draft = cloneDate(normalized)
+    this.#touch()
     this.#emit({ type: 'state', reason: hasValue ? 'external' : 'options' })
   }
 
   open(seed?: Date): void {
     const source = this.#value ?? seed ?? this.#readNow()
-    this.#draft = this.#normalizedSeed(source)
+    this.#draft = this.#normalizeSelectableSeed(source, this.#options, this.#boundsValue)
     this.#open = true
+    this.#touch()
     this.#emit({ type: 'state', reason: 'open' })
   }
 
   close(): void {
     if (!this.#open) return
     this.#open = false
+    this.#touch()
     this.#emit({ type: 'state', reason: 'close' })
   }
 
   resetDraft(seed?: Date): void {
     const source = this.#value ?? seed ?? this.#readNow()
-    this.#draft = this.#normalizedSeed(source)
+    this.#draft = this.#normalizeSelectableSeed(source, this.#options, this.#boundsValue)
+    this.#touch()
     this.#emit({ type: 'state', reason: 'draft' })
   }
 
   clear(): void {
+    if (this.#value === null) return
     this.#value = null
+    this.#touch()
     this.#emit({ type: 'change', reason: 'clear', value: null })
   }
 
@@ -225,9 +286,8 @@ export class DatePickerController {
   }
 
   select(part: DatePart, value: number): boolean {
-    const bounds = this.#bounds()
     const parts = dateToParts(this.#draft)
-    if (!this.#partAllowed(part, value, parts, bounds)) return false
+    if (!this.#partAllowed(part, value, parts)) return false
 
     const changed: DateParts = { ...parts, [part]: value }
     const next: DateParts = part === 'year' || part === 'month'
@@ -242,57 +302,15 @@ export class DatePickerController {
     return true
   }
 
-  #partAllowed(part: DatePart, value: number, parts: DateParts, bounds: DateBounds): boolean {
+  #partAllowed(part: DatePart, value: number, parts: DateParts): boolean {
     if (!Number.isInteger(value)) return false
 
     switch (part) {
-      case 'year': {
-        const [start, end] = yearWindow(
-          parts.year,
-          bounds.min?.getFullYear(),
-          bounds.max?.getFullYear(),
-          this.#options.pastYears,
-          this.#options.futureYears,
-        )
-        if (value < start || value > end) return false
-        const interval = yearInterval(value, this.#options.enableTime)
-        return interval !== null && rangeIntersects(interval[0], interval[1], bounds)
-      }
-      case 'month': {
-        if (value < 1 || value > 12) return false
-        const interval = monthInterval(parts.year, value, this.#options.enableTime)
-        return interval !== null && rangeIntersects(interval[0], interval[1], bounds)
-      }
-      case 'day': {
-        if (value < 1 || value > daysInMonth(parts.year, parts.month)) return false
-        const interval = dayInterval(parts.year, parts.month, value, this.#options.enableTime)
-        return interval !== null && rangeIntersects(interval[0], interval[1], bounds)
-      }
-      case 'hour': {
-        if (!this.#options.enableTime || value < 0 || value > 23) return false
-        return integerRange(0, 59).some(minute => this.#minuteAllowed(
-          parts.year,
-          parts.month,
-          parts.day,
-          value,
-          minute,
-          bounds,
-        ))
-      }
-      case 'minute': {
-        if (!this.#options.enableTime || value < 0 || value > 59) return false
-        const followsStep = value % this.#options.minuteStep === 0
-        if (!followsStep && value !== parts.minute) return false
-        return this.#minuteAllowed(
-          parts.year,
-          parts.month,
-          parts.day,
-          parts.hour,
-          value,
-          bounds,
-        )
-      }
-      default: return false
+      case 'year': return this.#years(parts).includes(value)
+      case 'month': return this.#months(parts).includes(value)
+      case 'day': return this.#days(parts).includes(value)
+      case 'hour': return this.#options.enableTime && this.#hours(parts).includes(value)
+      case 'minute': return this.#options.enableTime && this.#minutes(parts).includes(value)
     }
   }
 
@@ -304,83 +322,152 @@ export class DatePickerController {
     }
   }
 
+  #touch(): void {
+    this.#revision += 1
+    this.#snapshotCache = null
+  }
+
   #readNow(): Date {
     const value = this.#options.now()
     if (!isValidDate(value)) throw new RangeError('options.now() must return a valid Date')
     return cloneDate(value)
   }
 
-  #bounds(): DateBounds {
-    return boundsForOptions(this.#options)
-  }
-
-  #normalizedSeed(date: Date): Date {
-    return normalizedSeedForOptions(date, this.#options)
-  }
-
-  #isOutOfRange(bounds: DateBounds): boolean {
+  #isOutOfRange(): boolean {
     if (!this.#value) return false
-    const value = normalizePickerDate(this.#value, this.#options.enableTime)
-    const time = value.getTime()
+    const time = this.#value.getTime()
     return Boolean(
-      (bounds.min && time < bounds.min.getTime())
-      || (bounds.max && time > bounds.max.getTime()),
+      (this.#boundsValue.min && time < this.#boundsValue.min.getTime())
+      || (this.#boundsValue.max && time > this.#boundsValue.max.getTime()),
     )
   }
 
   #commit(date: Date, reason: 'select' | 'now'): Date {
-    const next = this.#normalizedSeed(date)
+    const next = this.#normalizeSelectableSeed(date, this.#options, this.#boundsValue)
+    const previous = this.#value
     this.#draft = cloneDate(next)
     this.#value = cloneDate(next)
-    const emitted = cloneDate(next)
-    this.#emit({ type: 'change', reason, value: emitted })
+    this.#touch()
+
+    if (!sameInstant(previous, next)) {
+      this.#emit({ type: 'change', reason, value: cloneDate(next) })
+    }
     return cloneDate(next)
   }
 
-  #minuteCandidates(
+  #minuteResolver(
     year: number,
     month: number,
     day: number,
-    hour: number,
-    minute: number,
     bounds: DateBounds,
-  ): Date[] {
-    return exactLocalDateTimes(year, month, day, hour, minute).filter(candidate => {
-      const time = candidate.getTime()
-      return (!bounds.min || time >= bounds.min.getTime())
-        && (!bounds.max || time <= bounds.max.getTime())
-    })
+  ): MinuteResolver {
+    const cache = new Map<number, readonly Date[]>()
+    return (hour, minute) => {
+      const key = hour * 60 + minute
+      const cached = cache.get(key)
+      if (cached) return cached
+      const candidates = exactLocalDateTimes(year, month, day, hour, minute).filter(candidate => {
+        const time = candidate.getTime()
+        return (!bounds.min || time >= bounds.min.getTime())
+          && (!bounds.max || time <= bounds.max.getTime())
+      })
+      cache.set(key, candidates)
+      return candidates
+    }
   }
 
-  #minuteAllowed(
+  #boundaryMinutes(
     year: number,
     month: number,
     day: number,
     hour: number,
-    minute: number,
     bounds: DateBounds,
-  ): boolean {
-    return this.#minuteCandidates(year, month, day, hour, minute, bounds).length > 0
-  }
-
-  #dateForMinute(
-    year: number,
-    month: number,
-    day: number,
-    hour: number,
-    minute: number,
-    bounds: DateBounds,
-  ): Date | null {
-    const candidates = this.#minuteCandidates(year, month, day, hour, minute, bounds)
-    if (!candidates.length) return null
-    const reference = this.#draft.getTime()
-    let best = candidates[0] ?? null
-    for (const candidate of candidates.slice(1)) {
-      if (best && Math.abs(candidate.getTime() - reference) < Math.abs(best.getTime() - reference)) {
-        best = candidate
+  ): number[] {
+    const result: number[] = []
+    for (const boundary of [bounds.min, bounds.max]) {
+      if (boundary && sameCivilDate(boundary, year, month, day) && boundary.getHours() === hour) {
+        result.push(boundary.getMinutes())
       }
     }
-    return best ? cloneDate(best) : null
+    return result
+  }
+
+  #minuteValuesForHour(
+    year: number,
+    month: number,
+    day: number,
+    hour: number,
+    options: ResolvedDatePickerOptions,
+    bounds: DateBounds,
+    resolveMinute: MinuteResolver,
+  ): number[] {
+    const values = new Set<number>(integerRange(0, 59, options.minuteStep))
+    for (const minute of this.#boundaryMinutes(year, month, day, hour, bounds)) values.add(minute)
+    return [...values]
+      .sort((left, right) => left - right)
+      .filter(minute => resolveMinute(hour, minute).length > 0)
+  }
+
+  #selectableMinuteOfDayValues(
+    parts: Pick<DateParts, 'year' | 'month' | 'day'>,
+    options: ResolvedDatePickerOptions,
+    bounds: DateBounds,
+    resolveMinute: MinuteResolver,
+    onlyHour?: number,
+  ): number[] {
+    const result: number[] = []
+    const hours = onlyHour === undefined ? integerRange(0, 23) : [onlyHour]
+    for (const hour of hours) {
+      for (const minute of this.#minuteValuesForHour(
+        parts.year,
+        parts.month,
+        parts.day,
+        hour,
+        options,
+        bounds,
+        resolveMinute,
+      )) {
+        result.push(hour * 60 + minute)
+      }
+    }
+    return result
+  }
+
+  #nearestSelectableDate(
+    parts: DateParts,
+    reference: Date,
+    options: ResolvedDatePickerOptions,
+    bounds: DateBounds,
+    onlyHour?: number,
+  ): Date | null {
+    const resolveMinute = this.#minuteResolver(parts.year, parts.month, parts.day, bounds)
+    const requested = parts.hour * 60 + parts.minute
+    const values = this.#selectableMinuteOfDayValues(parts, options, bounds, resolveMinute, onlyHour)
+      .sort((left, right) => {
+        const distance = Math.abs(left - requested) - Math.abs(right - requested)
+        return distance !== 0 ? distance : left - right
+      })
+
+    for (const minuteOfDay of values) {
+      const hour = Math.floor(minuteOfDay / 60)
+      const minute = minuteOfDay % 60
+      const candidate = nearestCandidate(resolveMinute(hour, minute), reference.getTime())
+      if (candidate) return candidate
+    }
+    return null
+  }
+
+  #normalizeSelectableSeed(
+    date: Date,
+    options: ResolvedDatePickerOptions,
+    bounds: DateBounds,
+  ): Date {
+    const normalized = clampDate(normalizePickerDate(date, options.enableTime), bounds)
+    if (!options.enableTime) return normalized
+
+    const parts = dateToParts(normalized)
+    const nearest = this.#nearestSelectableDate(parts, normalized, options, bounds)
+    return nearest ?? normalized
   }
 
   #dateFromParts(parts: DateParts, changedPart?: DatePart): Date {
@@ -397,135 +484,156 @@ export class DatePickerController {
       if (interval) return cloneDate(interval[0])
       throw new RangeError('Selected local civil day has no representable whole minute')
     }
-    const bounds = this.#bounds()
-    const exact = this.#dateForMinute(
+
+    const requested = new Date(this.#draft.getTime())
+    const exactParts = { ...safeParts }
+    const resolveMinute = this.#minuteResolver(
+      safeParts.year,
+      safeParts.month,
+      safeParts.day,
+      this.#boundsValue,
+    )
+    const allowedMinutes = this.#minuteValuesForHour(
       safeParts.year,
       safeParts.month,
       safeParts.day,
       safeParts.hour,
-      safeParts.minute,
-      bounds,
+      this.#options,
+      this.#boundsValue,
+      resolveMinute,
     )
-    if (exact) return exact
 
-    const requested = safeParts.hour * 60 + safeParts.minute
-
-    // When the user explicitly selected an hour that only partially exists
-    // (for example Lord Howe's 30-minute spring-forward gap), keep that hour
-    // and choose the nearest valid minute inside it. Searching the whole day
-    // could otherwise undo the hour selection by preferring 01:59 over 02:30.
-    if (changedPart === 'hour') {
-      let bestMinute: { readonly distance: number; readonly date: Date } | null = null
-      for (let minute = 0; minute <= 59; minute += 1) {
-        if (!this.#minuteAllowed(
-          safeParts.year,
-          safeParts.month,
-          safeParts.day,
-          safeParts.hour,
-          minute,
-          bounds,
-        )) {
-          continue
-        }
-        const candidate = this.#dateForMinute(
-          safeParts.year,
-          safeParts.month,
-          safeParts.day,
-          safeParts.hour,
-          minute,
-          bounds,
-        )
-        if (!candidate) continue
-        const distance = Math.abs(minute - safeParts.minute)
-        if (!bestMinute || distance < bestMinute.distance) {
-          bestMinute = { distance, date: candidate }
-        }
-      }
-      if (bestMinute) return bestMinute.date
+    if (allowedMinutes.includes(safeParts.minute)) {
+      const exact = nearestCandidate(
+        resolveMinute(safeParts.hour, safeParts.minute),
+        this.#draft.getTime(),
+      )
+      if (exact) return exact
     }
 
-    let best: { readonly distance: number; readonly date: Date } | null = null
-    for (let hour = 0; hour <= 23; hour += 1) {
-      for (let minute = 0; minute <= 59; minute += 1) {
-        if (!this.#minuteAllowed(safeParts.year, safeParts.month, safeParts.day, hour, minute, bounds)) {
-          continue
-        }
-        const candidate = this.#dateForMinute(
-          safeParts.year,
-          safeParts.month,
-          safeParts.day,
-          hour,
-          minute,
-          bounds,
-        )
-        if (!candidate) continue
-        const distance = Math.abs(hour * 60 + minute - requested)
-        if (!best || distance < best.distance) {
-          best = { distance, date: candidate }
-        }
-      }
-    }
+    const nearest = this.#nearestSelectableDate(
+      exactParts,
+      requested,
+      this.#options,
+      this.#boundsValue,
+      changedPart === 'hour' ? safeParts.hour : undefined,
+    )
+    if (nearest) return nearest
 
-    return best?.date ?? partsToDate(safeParts, true)
+    const fallback = this.#normalizeSelectableSeed(requested, this.#options, this.#boundsValue)
+    return fallback
   }
 
-  #columns(parts: DateParts, bounds: DateBounds): DatePickerColumns {
-    const [yearStart, yearEnd] = yearWindow(
+  #cacheKey(...parts: Array<string | number | boolean | null>): string {
+    return parts.join('|')
+  }
+
+  #boundsKey(): string {
+    return `${this.#boundsValue.min?.getTime() ?? ''}:${this.#boundsValue.max?.getTime() ?? ''}`
+  }
+
+  #years(parts: DateParts): readonly number[] {
+    const key = this.#cacheKey(
       parts.year,
-      bounds.min?.getFullYear(),
-      bounds.max?.getFullYear(),
+      this.#boundsKey(),
+      this.#options.enableTime,
       this.#options.pastYears,
       this.#options.futureYears,
     )
+    if (this.#yearsCache?.key === key) return this.#yearsCache.values
 
-    const years = integerRange(yearStart, yearEnd).filter(year => {
+    const [start, end] = yearWindow(
+      parts.year,
+      this.#boundsValue.min?.getFullYear(),
+      this.#boundsValue.max?.getFullYear(),
+      this.#options.pastYears,
+      this.#options.futureYears,
+    )
+    const values = integerRange(start, end).filter(year => {
       const interval = yearInterval(year, this.#options.enableTime)
-      return interval !== null && rangeIntersects(interval[0], interval[1], bounds)
+      return interval !== null && rangeIntersects(interval[0], interval[1], this.#boundsValue)
     })
+    this.#yearsCache = { key, values }
+    return values
+  }
 
-    const months = integerRange(1, 12).filter(month => {
+  #months(parts: DateParts): readonly number[] {
+    const key = this.#cacheKey(parts.year, this.#boundsKey(), this.#options.enableTime)
+    if (this.#monthsCache?.key === key) return this.#monthsCache.values
+
+    const values = integerRange(1, 12).filter(month => {
       const interval = monthInterval(parts.year, month, this.#options.enableTime)
-      return interval !== null && rangeIntersects(interval[0], interval[1], bounds)
+      return interval !== null && rangeIntersects(interval[0], interval[1], this.#boundsValue)
     })
+    this.#monthsCache = { key, values }
+    return values
+  }
 
-    const days = integerRange(1, daysInMonth(parts.year, parts.month)).filter(day => {
+  #days(parts: DateParts): readonly number[] {
+    const key = this.#cacheKey(parts.year, parts.month, this.#boundsKey(), this.#options.enableTime)
+    if (this.#daysCache?.key === key) return this.#daysCache.values
+
+    const values = integerRange(1, daysInMonth(parts.year, parts.month)).filter(day => {
       const interval = dayInterval(parts.year, parts.month, day, this.#options.enableTime)
-      return interval !== null && rangeIntersects(interval[0], interval[1], bounds)
+      return interval !== null && rangeIntersects(interval[0], interval[1], this.#boundsValue)
     })
+    this.#daysCache = { key, values }
+    return values
+  }
 
-    if (!this.#options.enableTime) {
-      return { years, months, days, hours: [], minutes: [] }
+  #hours(parts: DateParts): readonly number[] {
+    if (!this.#options.enableTime) return []
+    const key = this.#cacheKey(parts.year, parts.month, parts.day, this.#boundsKey(), this.#options.minuteStep)
+    if (this.#hoursCache?.key === key) return this.#hoursCache.values
+
+    const resolveMinute = this.#minuteResolver(parts.year, parts.month, parts.day, this.#boundsValue)
+    const values = integerRange(0, 23).filter(hour => this.#minuteValuesForHour(
+      parts.year,
+      parts.month,
+      parts.day,
+      hour,
+      this.#options,
+      this.#boundsValue,
+      resolveMinute,
+    ).length > 0)
+    this.#hoursCache = { key, values }
+    return values
+  }
+
+  #minutes(parts: DateParts): readonly number[] {
+    if (!this.#options.enableTime) return []
+    const key = this.#cacheKey(
+      parts.year,
+      parts.month,
+      parts.day,
+      parts.hour,
+      this.#boundsKey(),
+      this.#options.minuteStep,
+    )
+    if (this.#minutesCache?.key === key) return this.#minutesCache.values
+
+    const resolveMinute = this.#minuteResolver(parts.year, parts.month, parts.day, this.#boundsValue)
+    const values = this.#minuteValuesForHour(
+      parts.year,
+      parts.month,
+      parts.day,
+      parts.hour,
+      this.#options,
+      this.#boundsValue,
+      resolveMinute,
+    )
+    this.#minutesCache = { key, values }
+    return values
+  }
+
+  #columns(parts: DateParts): DatePickerColumns {
+    return {
+      years: this.#years(parts),
+      months: this.#months(parts),
+      days: this.#days(parts),
+      hours: this.#hours(parts),
+      minutes: this.#minutes(parts),
     }
-
-    const minuteAllowedCache = new Map<number, boolean>()
-    const minuteAllowed = (hour: number, minute: number): boolean => {
-      const key = hour * 60 + minute
-      const cached = minuteAllowedCache.get(key)
-      if (cached !== undefined) return cached
-      const allowed = this.#minuteAllowed(
-        parts.year,
-        parts.month,
-        parts.day,
-        hour,
-        minute,
-        bounds,
-      )
-      minuteAllowedCache.set(key, allowed)
-      return allowed
-    }
-
-    const hours = integerRange(0, 23).filter(hour => (
-      integerRange(0, 59).some(minute => minuteAllowed(hour, minute))
-    ))
-
-    const minuteValues = integerRange(0, 59, this.#options.minuteStep)
-    if (!minuteValues.includes(parts.minute)) {
-      minuteValues.push(parts.minute)
-      minuteValues.sort((left, right) => left - right)
-    }
-    const minutes = minuteValues.filter(minute => minuteAllowed(parts.hour, minute))
-
-    return { years, months, days, hours, minutes }
   }
 }
 
