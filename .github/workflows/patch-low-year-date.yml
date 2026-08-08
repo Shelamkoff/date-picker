@@ -1,0 +1,98 @@
+name: Harden low-year local date construction
+
+on:
+  push:
+    branches: [browser-recheck]
+    paths:
+      - .github/workflows/patch-low-year-date.yml
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Use target-year timezone rules for years 0 through 99
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          calendar = Path('src/core/calendar.ts')
+          text = calendar.read_text()
+          old = '''    // The multi-argument Date constructor maps years 0..99 to 1900..1999.
+              // Use a surrogate from the same 400-year Gregorian cycle so leap-day
+              // validity is preserved (year 0 and year 2000 are both leap years), then
+              // replace only the year. This also avoids intermediate overflow near the
+              // ECMAScript Date range boundaries.
+              const surrogateYear = 2000 + wholeYear
+              const date = new Date(
+                surrogateYear,
+                monthIndex,
+                day,
+                hour,
+                minute,
+                second,
+                millisecond,
+              )
+              if (!isValidDate(date)) return date
+              const normalizedYear = date.getFullYear()
+              date.setFullYear(wholeYear + (normalizedYear - surrogateYear))
+              return date
+          '''.replace('          ', '')
+          new = '''    // The multi-argument Date constructor maps years 0..99 to 1900..1999.
+              // Apply the target year through local setters instead, so overflow keeps
+              // native Date semantics without borrowing DST rules from a surrogate year.
+              const date = new Date(0)
+              date.setHours(12, 0, 0, 0)
+              date.setFullYear(wholeYear, monthIndex, day)
+              date.setHours(hour, minute, second, millisecond)
+              return date
+          '''.replace('          ', '')
+          if old not in text:
+              raise SystemExit('low-year constructor target not found')
+          calendar.write_text(text.replace(old, new, 1))
+
+          tests = Path('tests/controller-regression.test.mjs')
+          text = tests.read_text()
+          marker = '''test('years 0 through 99 preserve constructor overflow across year boundaries', () => {
+            const nextYear = createLocalDate(42, 12, 1)
+            assert.equal(nextYear.getFullYear(), 43)
+            assert.equal(nextYear.getMonth(), 0)
+            assert.equal(nextYear.getDate(), 1)
+
+            const previousYear = createLocalDate(42, 0, 0)
+            assert.equal(previousYear.getFullYear(), 41)
+            assert.equal(previousYear.getMonth(), 11)
+            assert.equal(previousYear.getDate(), 31)
+          })
+          '''.replace('          ', '')
+          addition = marker + '''
+          test('low years do not inherit a surrogate year DST gap', {
+            skip: process.env.TZ !== 'America/New_York',
+          }, () => {
+            const value = createLocalDate(42, 3, 2, 2, 30)
+            assert.equal(value.getFullYear(), 42)
+            assert.equal(value.getMonth(), 3)
+            assert.equal(value.getDate(), 2)
+            assert.equal(value.getHours(), 2)
+            assert.equal(value.getMinutes(), 30)
+          })
+          '''.replace('          ', '')
+          if marker not in text:
+              raise SystemExit('low-year regression insertion target not found')
+          tests.write_text(text.replace(marker, addition, 1))
+          PY
+
+      - name: Verify and commit
+        run: |
+          npm ci --no-audit --no-fund
+          npm test
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/core/calendar.ts tests/controller-regression.test.mjs
+          git diff --cached --check
+          git commit -m "Construct low years with target timezone rules"
+          git push
