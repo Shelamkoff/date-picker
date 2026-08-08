@@ -207,7 +207,7 @@
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: none;
-  scroll-snap-type: y mandatory;
+  scroll-snap-type: none;
   scroll-behavior: auto;
   border: 0;
   outline: none;
