@@ -66,3 +66,31 @@ test('snapshot results are defensive copies', () => {
   assert.notEqual(first.columns.years, second.columns.years)
   assert.deepEqual(first.columns.years, second.columns.years)
 })
+
+
+test('selecting an already exposed minute avoids a full-day Date scan', () => {
+  const NativeDate = globalThis.Date
+  let constructions = 0
+
+  class CountingDate extends NativeDate {
+    constructor(...args) {
+      super(...args)
+      constructions += 1
+    }
+  }
+
+  globalThis.Date = CountingDate
+  try {
+    const controller = new DatePickerController(
+      { enableTime: true, minuteStep: 1 },
+      new NativeDate(2026, 0, 15, 12, 30),
+    )
+    controller.open()
+    constructions = 0
+    assert.equal(controller.select('minute', 31), true)
+    assert.ok(constructions < 500, `expected a local minute check, got ${constructions} Date constructions`)
+  }
+  finally {
+    globalThis.Date = NativeDate
+  }
+})

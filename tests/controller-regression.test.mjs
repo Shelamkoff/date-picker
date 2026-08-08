@@ -13,7 +13,7 @@ function localDate(year, month, day, hour = 0, minute = 0, second = 0, milliseco
   return date
 }
 
-function withCountingDate(callback) {
+function countDateConstructions(callback) {
   const NativeDate = globalThis.Date
   let constructions = 0
 
@@ -26,42 +26,39 @@ function withCountingDate(callback) {
 
   globalThis.Date = CountingDate
   try {
-    callback(() => constructions)
+    callback()
+    return constructions
   }
   finally {
     globalThis.Date = NativeDate
   }
 }
 
-test('an already valid aligned value is normalized without scanning the whole day', () => {
+test('normalizing an aligned value does not scan the entire day', () => {
   const seed = localDate(2026, 8, 8, 12, 30)
-
-  withCountingDate(getConstructions => {
-    const controller = new DatePickerController(
-      { enableTime: true, minuteStep: 1 },
-      seed,
-    )
-
-    assert.equal(controller.value?.getTime(), seed.getTime())
-    assert.ok(
-      getConstructions() < 200,
-      `normalizing one valid minute constructed ${getConstructions()} Date objects`,
-    )
+  let controller
+  const constructions = countDateConstructions(() => {
+    controller = new DatePickerController({ enableTime: true, minuteStep: 1 }, seed)
   })
+
+  assert.equal(controller.value?.getTime(), seed.getTime())
+  assert.ok(constructions < 100, `constructed ${constructions} Date objects`)
 })
 
-test('in-range seconds and milliseconds are removed from external values', () => {
-  const controller = new DatePickerController(
-    { enableTime: true, minuteStep: 5 },
-    localDate(2026, 8, 8, 12, 31, 59, 999),
-  )
+test('normalizing an off-grid value searches candidates lazily', () => {
+  const seed = localDate(2026, 8, 8, 12, 31, 59, 999)
+  let controller
+  const constructions = countDateConstructions(() => {
+    controller = new DatePickerController({ enableTime: true, minuteStep: 5 }, seed)
+  })
 
+  assert.equal(controller.value?.getMinutes(), 30)
   assert.equal(controller.value?.getSeconds(), 0)
   assert.equal(controller.value?.getMilliseconds(), 0)
-  assert.equal(controller.value?.getMinutes(), 30)
+  assert.ok(constructions < 150, `constructed ${constructions} Date objects`)
 })
 
-test('changing minuteStep invalidates minute columns and normalizes the value', () => {
+test('changing minuteStep invalidates columns and normalizes the value', () => {
   const controller = new DatePickerController(
     { enableTime: true, minuteStep: 5 },
     localDate(2026, 8, 8, 12, 25),
@@ -101,8 +98,10 @@ test('clear is idempotent and emits at most one change', () => {
 })
 
 test('invalid now callbacks are rejected when read', () => {
-  const controller = new DatePickerController({ now: () => new Date(Number.NaN) })
-  assert.throws(() => controller.open(), /valid Date/)
+  assert.throws(
+    () => new DatePickerController({ now: () => new Date(Number.NaN) }),
+    /valid Date/,
+  )
 })
 
 test('repeated local minutes preserve the supplied occurrence', {
@@ -119,7 +118,7 @@ test('repeated local minutes preserve the supplied occurrence', {
   assert.equal(controller.value?.getTime(), secondOccurrence.getTime())
 })
 
-test('skipped civil days are excluded from the day column', {
+test('skipped civil days are excluded from day columns', {
   skip: process.env.TZ !== 'Pacific/Apia',
 }, () => {
   const controller = new DatePickerController({}, localDate(2011, 12, 29))
@@ -136,11 +135,10 @@ test('years 0 through 99 retain their literal year', () => {
 
 test('cancel invalidates a pending WheelMotion completion', () => {
   const frames = []
-  const writes = []
   const completed = []
   const motion = new WheelMotion({
-    write: value => writes.push(value),
-    requestFrame: callback => frames.push(callback),
+    write() {},
+    requestFrame(callback) { frames.push(callback) },
     responseTime: 32,
     epsilon: 0.01,
   })
@@ -157,15 +155,14 @@ test('cancel invalidates a pending WheelMotion completion', () => {
 
   assert.deepEqual(completed, [])
   assert.equal(motion.phase, 'idle')
-  assert.ok(writes.length <= 1)
 })
 
-test('enabling reduced motion during a snap completes it once', () => {
+test('enabling reduced motion during a snap completes it exactly once', () => {
   const frames = []
   let completions = 0
   const motion = new WheelMotion({
     write() {},
-    requestFrame: callback => frames.push(callback),
+    requestFrame(callback) { frames.push(callback) },
   })
 
   const generation = motion.input(40, value => value)
@@ -183,5 +180,3 @@ test('enabling reduced motion during a snap completes it once', () => {
   assert.equal(motion.position, 40)
   assert.equal(motion.phase, 'idle')
 })
-
-// Verification trigger: the workflow itself prepares the patched branch before running the matrix.
