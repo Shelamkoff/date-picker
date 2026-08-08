@@ -63,6 +63,20 @@ async function dispatchWheel(page, selector, deltaY, count = 1, interval = 0) {
   }, { selector, deltaY, count, interval })
 }
 
+async function readThemeState(page) {
+  return page.evaluate(() => {
+    const host = document.querySelector('#hero-picker')
+    const control = host.querySelector('.sdp-datepicker__control')
+    return {
+      className: host.className,
+      variable: getComputedStyle(host).getPropertyValue('--sdp-control-bg').trim(),
+      background: getComputedStyle(control).backgroundColor,
+      bodyClassName: document.body.className,
+      buttonText: document.querySelector('#theme-toggle').textContent,
+    }
+  })
+}
+
 const context = await browser.newContext({
   viewport: { width: 1280, height: 800 },
   reducedMotion: 'no-preference',
@@ -88,11 +102,15 @@ assert.ok(demoState.triggerText.length > 0)
 assert.ok(demoState.styleSheets.some(url => url.endsWith('/style.css')))
 
 // Built-in light theme must actually change picker surfaces.
-const darkBackground = await page.locator('#hero-picker .sdp-datepicker__control').evaluate(node => getComputedStyle(node).backgroundColor)
+const darkTheme = await readThemeState(page)
 await page.locator('#theme-toggle').click()
-const lightBackground = await page.locator('#hero-picker .sdp-datepicker__control').evaluate(node => getComputedStyle(node).backgroundColor)
-assert.notEqual(lightBackground, darkBackground)
+await page.waitForFunction(() => document.querySelector('#hero-picker')?.classList.contains('sdp-theme-light'))
+const lightTheme = await readThemeState(page)
+console.log(JSON.stringify({ theme: { darkTheme, lightTheme } }, null, 2))
+assert.notEqual(lightTheme.variable, darkTheme.variable)
+assert.notEqual(lightTheme.background, darkTheme.background)
 await page.locator('#theme-toggle').click()
+await page.waitForFunction(() => !document.querySelector('#hero-picker')?.classList.contains('sdp-theme-light'))
 
 // Baseline semantics and keyboard selection.
 await page.locator('#hero-picker .sdp-datepicker__trigger').click()
