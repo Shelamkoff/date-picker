@@ -29,41 +29,18 @@ jobs:
           path = Path('src/dom/DatePicker.ts')
           text = path.read_text()
 
-          old_fields = '''  #documentListening = false
-          #viewportListening = false
-          #positionFramePending = false
-          #destroyed = false
-          '''.replace('          ', '')
-          new_fields = '''  #documentListening = false
-          #viewportListening = false
-          #positionFramePending = false
+          fields_target = "  #positionFramePending = false\n  #destroyed = false"
+          fields_replacement = """  #positionFramePending = false
           #focusCheckTimer: ReturnType<typeof setTimeout> | undefined
           #internalPointerId: number | null = null
-          #destroyed = false
-          '''.replace('          ', '')
-          if old_fields not in text:
+          #destroyed = false"""
+          if fields_target not in text:
               raise SystemExit('DatePicker field target not found')
-          text = text.replace(old_fields, new_fields, 1)
+          text = text.replace(fields_target, fields_replacement, 1)
 
-          old_handlers = '''  #handleFocusOut = (): void => {
-            if (!this.#controller.isOpen) return
-            queueMicrotask(() => {
-              if (this.#destroyed || !this.#controller.isOpen) return
-              const active = activeElementFor(this.element)
-              if (isNodeLike(active) && this.element.contains(active)) return
-              this.close()
-            })
-          }
-
-          #handleDocumentPointerDown = (event: PointerEvent): void => {
-            const path = typeof event.composedPath === 'function' ? event.composedPath() : []
-            if (path.includes(this.element)) return
-            const target = event.target
-            if (isNodeLike(target) && this.element.contains(target)) return
-            this.close()
-          }
-          '''.replace('          ', '')
-          new_handlers = '''  #clearFocusCheck(): void {
+          handler_start = text.index('  #handleFocusOut = (): void => {')
+          handler_end = text.index('\n\n  #handleViewportChange', handler_start)
+          handlers = """  #clearFocusCheck(): void {
             if (this.#focusCheckTimer !== undefined) clearTimeout(this.#focusCheckTimer)
             this.#focusCheckTimer = undefined
           }
@@ -113,25 +90,12 @@ jobs:
             if (this.#internalPointerId !== event.pointerId) return
             this.#internalPointerId = null
             this.#scheduleFocusCheck()
-          }
-          '''.replace('          ', '')
-          if old_handlers not in text:
-              raise SystemExit('DatePicker focus handler target not found')
-          text = text.replace(old_handlers, new_handlers, 1)
+          }"""
+          text = text[:handler_start] + handlers + text[handler_end:]
 
-          old_listeners = '''  #attachDocumentPointer(): void {
-            if (this.#documentListening) return
-            this.#document.addEventListener('pointerdown', this.#handleDocumentPointerDown, true)
-            this.#documentListening = true
-          }
-
-          #detachDocumentPointer(): void {
-            if (!this.#documentListening) return
-            this.#document.removeEventListener('pointerdown', this.#handleDocumentPointerDown, true)
-            this.#documentListening = false
-          }
-          '''.replace('          ', '')
-          new_listeners = '''  #attachDocumentPointer(): void {
+          listener_start = text.index('  #attachDocumentPointer(): void {')
+          listener_end = text.index('\n\n  #attachViewportListeners', listener_start)
+          listeners = """  #attachDocumentPointer(): void {
             if (this.#documentListening) return
             this.#document.addEventListener('pointerdown', this.#handleDocumentPointerDown, true)
             this.#document.addEventListener('pointerup', this.#handleDocumentPointerEnd, true)
@@ -147,11 +111,8 @@ jobs:
             this.#document.removeEventListener('pointerup', this.#handleDocumentPointerEnd, true)
             this.#document.removeEventListener('pointercancel', this.#handleDocumentPointerEnd, true)
             this.#documentListening = false
-          }
-          '''.replace('          ', '')
-          if old_listeners not in text:
-              raise SystemExit('DatePicker pointer listener target not found')
-          path.write_text(text.replace(old_listeners, new_listeners, 1))
+          }"""
+          path.write_text(text[:listener_start] + listeners + text[listener_end:])
           PY
 
       - name: Verify source fix
