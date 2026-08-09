@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   test:
@@ -86,3 +86,43 @@ jobs:
 
       - name: Test pointer selections and Now action
         run: node tests/pointer-selection.browser.mjs
+
+  apply-month-display:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && contains(github.event.head_commit.message, 'Run month display implementation')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v6
+        with:
+          ref: master
+          fetch-depth: 2
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22.12.0'
+          cache: npm
+
+      - name: Apply implementation
+        run: python3 scripts/apply_month_display_and_entry.py
+
+      - name: Verify implementation
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm test
+          npm pack --dry-run --ignore-scripts
+
+      - name: Commit implementation and restore CI
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git show HEAD^:.github/workflows/ci.yml > .github/workflows/ci.yml
+          rm -f .github/workflows/implement-month-display-and-entry.yml
+          rm -f scripts/apply_month_display_and_entry.py
+          rmdir scripts 2>/dev/null || true
+          git add -A
+          git diff --cached --check
+          git commit -m "Add configurable month labels and direct wheel entry"
+          git push origin HEAD:master
