@@ -1,0 +1,135 @@
+name: Format pointer focus implementation
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  format:
+    if: github.head_ref == 'fix-pointer-selection' || github.ref_name == 'fix-pointer-selection'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: fix-pointer-selection
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.12.0'
+          cache: npm
+
+      - name: Normalize source indentation
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+          from textwrap import dedent, indent
+
+          path = Path('src/dom/DatePicker.ts')
+          text = path.read_text()
+
+          text = text.replace(
+              '#focusCheckTimer: ReturnType<typeof setTimeout> | undefined\n'
+              '#internalPointerId: number | null = null\n'
+              '#destroyed = false',
+              '  #focusCheckTimer: ReturnType<typeof setTimeout> | undefined\n'
+              '  #internalPointerId: number | null = null\n'
+              '  #destroyed = false',
+              1,
+          )
+
+          methods_start = text.index('  #clearFocusCheck(): void {')
+          methods_end = text.index('\n\n  #handleViewportChange', methods_start)
+          methods = indent(dedent('''\
+          #clearFocusCheck(): void {
+            if (this.#focusCheckTimer !== undefined) clearTimeout(this.#focusCheckTimer)
+            this.#focusCheckTimer = undefined
+          }
+
+          #scheduleFocusCheck(): void {
+            this.#clearFocusCheck()
+            this.#focusCheckTimer = setTimeout(() => {
+              this.#focusCheckTimer = undefined
+              if (
+                this.#destroyed
+                || !this.#controller.isOpen
+                || this.#internalPointerId !== null
+              ) {
+                return
+              }
+
+              const active = activeElementFor(this.element)
+              if (isNodeLike(active) && this.element.contains(active)) return
+              this.close()
+            }, 0)
+          }
+
+          #eventTargetsPicker(event: Event): boolean {
+            const path = typeof event.composedPath === 'function' ? event.composedPath() : []
+            if (path.includes(this.element)) return true
+            const target = event.target
+            return isNodeLike(target) && this.element.contains(target)
+          }
+
+          #handleFocusOut = (): void => {
+            if (this.#controller.isOpen) this.#scheduleFocusCheck()
+          }
+
+          #handleDocumentPointerDown = (event: PointerEvent): void => {
+            if (this.#eventTargetsPicker(event)) {
+              this.#internalPointerId = event.pointerId
+              this.#clearFocusCheck()
+              return
+            }
+
+            this.#internalPointerId = null
+            this.#clearFocusCheck()
+            this.close()
+          }
+
+          #handleDocumentPointerEnd = (event: PointerEvent): void => {
+            if (this.#internalPointerId !== event.pointerId) return
+            this.#internalPointerId = null
+            this.#scheduleFocusCheck()
+          }'''), '  ')
+          text = text[:methods_start] + methods + text[methods_end:]
+
+          listeners_start = text.index('  #attachDocumentPointer(): void {')
+          listeners_end = text.index('\n\n  #attachViewportListeners', listeners_start)
+          listeners = indent(dedent('''\
+          #attachDocumentPointer(): void {
+            if (this.#documentListening) return
+            this.#document.addEventListener('pointerdown', this.#handleDocumentPointerDown, true)
+            this.#document.addEventListener('pointerup', this.#handleDocumentPointerEnd, true)
+            this.#document.addEventListener('pointercancel', this.#handleDocumentPointerEnd, true)
+            this.#documentListening = true
+          }
+
+          #detachDocumentPointer(): void {
+            this.#clearFocusCheck()
+            this.#internalPointerId = null
+            if (!this.#documentListening) return
+            this.#document.removeEventListener('pointerdown', this.#handleDocumentPointerDown, true)
+            this.#document.removeEventListener('pointerup', this.#handleDocumentPointerEnd, true)
+            this.#document.removeEventListener('pointercancel', this.#handleDocumentPointerEnd, true)
+            this.#documentListening = false
+          }'''), '  ')
+          path.write_text(text[:listeners_start] + listeners + text[listeners_end:])
+          PY
+
+      - name: Verify formatted source
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm test
+          git diff --check
+
+      - name: Commit formatting
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/dom/DatePicker.ts
+          git commit -m "Format pointer focus implementation"
+          git push
