@@ -41,14 +41,31 @@ await page.evaluate(async () => {
 const popover = page.locator('#pointer-audit .sdp-datepicker__popover')
 await popover.waitFor({ state: 'visible' })
 
+function optionFor(label, value) {
+  return page.locator(`#pointer-audit .sdp-wheel[aria-label="${label}"] [role="option"][data-value="${value}"]`)
+}
+
 async function clickOption(label, value, assertion) {
-  const option = page.locator(`#pointer-audit .sdp-wheel[aria-label="${label}"] [role="option"][data-value="${value}"]`)
-  await option.click()
+  await optionFor(label, value).click()
   assert.equal(await popover.evaluate(node => !node.hidden), true, `${label} click closed the popover`)
   await assertion()
 }
 
-await clickOption('Month', 7, async () => {
+async function holdAndClickOption(label, value, assertion) {
+  const option = optionFor(label, value)
+  await option.scrollIntoViewIfNeeded()
+  const box = await option.boundingBox()
+  assert.ok(box)
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.waitForTimeout(150)
+  assert.equal(await popover.evaluate(node => !node.hidden), true, `${label} pointerdown closed the popover`)
+  await page.mouse.up()
+  assert.equal(await popover.evaluate(node => !node.hidden), true, `${label} click closed the popover`)
+  await assertion()
+}
+
+await holdAndClickOption('Month', 7, async () => {
   assert.equal(await page.evaluate(() => window.__pointerAudit.picker.value.getMonth() + 1), 7)
 })
 await clickOption('Year', 2027, async () => {
