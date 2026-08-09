@@ -29,6 +29,7 @@ await page.evaluate(async () => {
     value: new Date(2026, 5, 15, 12, 30),
     enableTime: true,
     minuteStep: 5,
+    monthDisplay: 'long',
     loop: false,
     showNow: true,
     pastYears: 2,
@@ -112,6 +113,69 @@ assert.deepEqual(nowState, {
   reasons: ['select', 'select', 'select', 'select', 'now'],
 })
 
+// Focused wheels accept direct numeric or textual input.
+await page.evaluate(() => {
+  const { picker, changes } = window.__pointerRegression
+  changes.length = 0
+  picker.setValue(new Date(2026, 5, 15, 12, 30))
+  picker.update({ monthDisplay: 'long', formatMonth: null })
+  picker.open()
+})
+
+assert.equal(await optionFor('Month', 7).textContent(), 'July')
+
+async function typeIntoWheel(label, value) {
+  const wheel = page.locator(`#pointer-regression .sdp-wheel[aria-label="${label}"]`)
+  await wheel.focus()
+  await page.keyboard.type(value, { delay: 20 })
+  await page.waitForTimeout(40)
+  await assertPopoverOpen(`${label} keyboard input closed the popover`)
+}
+
+await typeIntoWheel('Month', 'jul')
+await typeIntoWheel('Year', '2027')
+await typeIntoWheel('Day', '22')
+await typeIntoWheel('Hours', '09')
+await typeIntoWheel('Minutes', '45')
+
+const typedState = await page.evaluate(() => {
+  const value = window.__pointerRegression.picker.value
+  return {
+    year: value.getFullYear(),
+    month: value.getMonth() + 1,
+    day: value.getDate(),
+    hour: value.getHours(),
+    minute: value.getMinutes(),
+    reasons: window.__pointerRegression.changes.map(change => change.reason),
+  }
+})
+assert.deepEqual({
+  year: typedState.year,
+  month: typedState.month,
+  day: typedState.day,
+  hour: typedState.hour,
+  minute: typedState.minute,
+}, {
+  year: 2027,
+  month: 7,
+  day: 22,
+  hour: 9,
+  minute: 45,
+})
+assert.ok(typedState.reasons.length >= 5)
+assert.ok(typedState.reasons.every(reason => reason === 'select'))
+
+await page.evaluate(() => window.__pointerRegression.picker.update({
+  monthDisplay: '2-digit',
+  formatMonth: null,
+}))
+assert.equal(await optionFor('Month', 7).textContent(), '07')
+
+await page.evaluate(() => window.__pointerRegression.picker.update({
+  formatMonth: month => `M${month}`,
+}))
+assert.equal(await optionFor('Month', 7).textContent(), 'M7')
+
 // Keyboard or programmatic focus leaving the widget must still close it.
 await page.evaluate(() => {
   const outside = document.createElement('button')
@@ -124,5 +188,5 @@ await page.waitForTimeout(25)
 assert.equal(await popover.evaluate(node => node.hidden), true, 'focus leaving the picker did not close it')
 
 assert.deepEqual(errors, [], errors.join('\n'))
-console.log(JSON.stringify({ browser: browserName, nowState }, null, 2))
+console.log(JSON.stringify({ browser: browserName, nowState, typedState }, null, 2))
 await browser.close()

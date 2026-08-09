@@ -9,6 +9,7 @@ import {
   type DatePickerChangeReason,
   type DatePickerOptions,
   type DatePickerSnapshot,
+  type MonthDisplay,
 } from '../core/index.js'
 import { resolvePopoverVerticalPlacement } from './PopoverPlacement.js'
 import { WheelColumn, type WheelItem } from './WheelColumn.js'
@@ -16,6 +17,8 @@ import { WheelColumn, type WheelItem } from './WheelColumn.js'
 export interface DatePickerWidgetOptions extends DatePickerOptions {
   readonly value?: Date | null
   readonly locale?: string
+  readonly monthDisplay?: MonthDisplay
+  readonly formatMonth?: ((month: number, locale: string) => string) | null
   readonly placeholder?: string
   readonly clearable?: boolean
   readonly disabled?: boolean
@@ -41,6 +44,8 @@ export interface DatePickerWidgetOptions extends DatePickerOptions {
 
 interface ViewOptions {
   locale: string
+  monthDisplay: MonthDisplay
+  formatMonth: ((month: number, locale: string) => string) | null
   placeholder: string
   clearable: boolean
   disabled: boolean
@@ -477,9 +482,13 @@ export class DatePicker {
 
     if (open) {
       const snapshot = this.#controller.snapshot
-      const monthLabel = createMonthFormatter(this.#view.locale)
+      const customMonthFormatter = this.#view.formatMonth
+      const monthLabel = customMonthFormatter
+        ? (month: number): string => formatCustomMonth(customMonthFormatter, month, this.#view.locale)
+        : createMonthFormatter(this.#view.locale, this.#view.monthDisplay)
       const twoDigits = createNumberFormatter(this.#view.locale, 2, false)
       const yearLabel = createNumberFormatter(this.#view.locale, 1, false)
+      this.#monthWheel.element.style.width = monthWheelWidth(this.#view)
       this.#dayWheel.setItems(numberItems(snapshot.columns.days, twoDigits), snapshot.parts.day)
       this.#monthWheel.setItems(numberItems(snapshot.columns.months, monthLabel), snapshot.parts.month)
       this.#yearWheel.setItems(numberItems(snapshot.columns.years, yearLabel), snapshot.parts.year)
@@ -699,12 +708,19 @@ function resolveViewOptions(
   patch: Partial<DatePickerWidgetOptions>,
 ): ViewOptions {
   const formatValue = patch.formatValue !== undefined ? patch.formatValue : previous?.formatValue ?? null
+  const formatMonth = patch.formatMonth !== undefined ? patch.formatMonth : previous?.formatMonth ?? null
   const onChange = patch.onChange !== undefined ? patch.onChange : previous?.onChange ?? null
   if (formatValue !== null && typeof formatValue !== 'function') throw new TypeError('formatValue must be a function or null')
+  if (formatMonth !== null && typeof formatMonth !== 'function') throw new TypeError('formatMonth must be a function or null')
   if (onChange !== null && typeof onChange !== 'function') throw new TypeError('onChange must be a function or null')
 
+  const locale = resolveLocale(patch.locale ?? previous?.locale ?? 'en-US')
+  const monthDisplay = resolveMonthDisplay(patch.monthDisplay ?? previous?.monthDisplay ?? 'short')
+
   return {
-    locale: resolveLocale(patch.locale ?? previous?.locale ?? 'en-US'),
+    locale,
+    monthDisplay,
+    formatMonth,
     placeholder: patch.placeholder ?? previous?.placeholder ?? 'Select date',
     clearable: patch.clearable ?? previous?.clearable ?? false,
     disabled: patch.disabled ?? previous?.disabled ?? false,
@@ -729,6 +745,11 @@ function resolveViewOptions(
   }
 }
 
+function resolveMonthDisplay(value: unknown): MonthDisplay {
+  if (value === 'long' || value === 'short' || value === 'narrow' || value === 'numeric' || value === '2-digit') return value
+  throw new RangeError("monthDisplay must be 'long', 'short', 'narrow', 'numeric' or '2-digit'")
+}
+
 function resolvePopoverAlign(value: unknown): 'start' | 'end' {
   if (value === 'start' || value === 'end') return value
   throw new RangeError("popoverAlign must be 'start' or 'end'")
@@ -742,6 +763,24 @@ function resolveLocale(locale: string): string {
   catch {
     throw new RangeError(`locale must be a valid Intl locale: ${locale}`)
   }
+}
+
+function monthWheelWidth(view: ViewOptions): string {
+  if (view.formatMonth || view.monthDisplay === 'long') return 'var(--sdp-month-wheel-width, 7.5rem)'
+  if (view.monthDisplay === 'numeric' || view.monthDisplay === '2-digit' || view.monthDisplay === 'narrow') {
+    return 'var(--sdp-month-wheel-width, 3.5rem)'
+  }
+  return 'var(--sdp-month-wheel-width, 5.5rem)'
+}
+
+function formatCustomMonth(
+  formatter: (month: number, locale: string) => string,
+  month: number,
+  locale: string,
+): string {
+  const label = formatter(month, locale)
+  if (typeof label !== 'string') throw new TypeError('formatMonth must return a string')
+  return label
 }
 
 function numberItems(values: readonly number[], label: (value: number) => string): WheelItem[] {

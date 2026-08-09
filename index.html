@@ -51,12 +51,13 @@
         <div class="section-copy">
           <p class="eyebrow">Playground</p>
           <h2>Date-only or date-time from the same API.</h2>
-          <p>Change the options and see the picker rebuild instantly. Normal applications can update an existing instance through <code>update()</code>.</p>
+          <p>Change the options and see the picker rebuild instantly. Normal applications can update an existing instance through <code>update()</code>. Focus a wheel and type a number or a month-name prefix to select it directly.</p>
           <div class="control-list">
             <label class="switch-row"><span>Time</span><input id="opt-time" type="checkbox" checked></label>
             <label class="switch-row"><span>Clear button</span><input id="opt-clear" type="checkbox" checked></label>
             <label class="switch-row"><span>Now button</span><input id="opt-now" type="checkbox" checked></label>
             <label class="switch-row"><span>Loop wheels</span><input id="opt-loop" type="checkbox"></label>
+            <label class="select-row"><span>Month labels</span><select id="opt-month-display"><option value="long">Names</option><option value="short" selected>Short names</option><option value="numeric">Numbers</option><option value="2-digit">Two digits</option></select></label>
             <label class="select-row"><span>Minute step</span><select id="opt-step"><option>1</option><option selected>5</option><option>10</option><option>15</option><option>30</option></select></label>
           </div>
         </div>
@@ -87,6 +88,7 @@ import '@shelamkoff/date-picker/style.css'
 const picker = new DatePicker(host, {
   enableTime: true,
   minuteStep: 5,
+  monthDisplay: 'long',
   clearable: true,
   showNow: true,
   onChange(value, reason) {
@@ -149,6 +151,7 @@ console.log(controller.snapshot.columns)</code></pre>
         clearable: byId('opt-clear').checked,
         showNow: byId('opt-now').checked,
         loop: byId('opt-loop').checked,
+        monthDisplay: byId('opt-month-display').value,
         minuteStep: Number(byId('opt-step').value),
         ariaLabel: 'Playground date picker',
         onChange(value) {
@@ -159,7 +162,7 @@ console.log(controller.snapshot.columns)</code></pre>
       syncHostTheme()
     }
     mountPlayground()
-    for (const id of ['opt-time','opt-clear','opt-now','opt-loop','opt-step']) byId(id).addEventListener('change', mountPlayground)
+    for (const id of ['opt-time','opt-clear','opt-now','opt-loop','opt-month-display','opt-step']) byId(id).addEventListener('change', mountPlayground)
 
     const rangeHost = byId('range-picker')
     pickerHosts.push(rangeHost)

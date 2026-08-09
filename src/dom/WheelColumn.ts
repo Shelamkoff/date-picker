@@ -18,6 +18,7 @@ export interface WheelColumnOptions {
 
 const WHEEL_ID_KEY = Symbol.for('@shelamkoff/date-picker/wheel-id')
 const SCROLL_SETTLE_DELAY = 90
+const INPUT_COMMIT_DELAY = 700
 const POSITION_EPSILON = 0.5
 
 function nextWheelId(document: Document): number {
@@ -41,6 +42,9 @@ export class WheelColumn {
   #baseId: string
   #motion: WheelMotion
   #settleTimer: ReturnType<typeof setTimeout> | undefined
+  #inputTimer: ReturnType<typeof setTimeout> | undefined
+  #inputBuffer = ''
+  #inputPreviewIndex = -1
   #writeGeneration = 0
   #interactive = false
   #destroyed = false
@@ -91,6 +95,7 @@ export class WheelColumn {
     element.addEventListener('touchstart', this.#beginNativeInteraction, { passive: true })
     element.addEventListener('keydown', this.#handleKeydown)
     element.addEventListener('click', this.#handleClick)
+    element.addEventListener('blur', this.#handleBlur)
   }
 
   setAriaLabel(label: string): void {
@@ -107,6 +112,7 @@ export class WheelColumn {
   }
 
   setItems(items: readonly WheelItem[], value: number): void {
+    this.#clearInput()
     const sameItems = wheelItemsEqual(this.#items, items)
     const valueChanged = this.#value !== value
 
@@ -143,6 +149,7 @@ export class WheelColumn {
   }
 
   cancelPendingSelection(): void {
+    this.#clearInput()
     this.#clearSettleTimer()
     this.#motion.cancel()
     this.#writeGeneration += 1
@@ -172,9 +179,11 @@ export class WheelColumn {
     this.element.removeEventListener('touchstart', this.#beginNativeInteraction)
     this.element.removeEventListener('keydown', this.#handleKeydown)
     this.element.removeEventListener('click', this.#handleClick)
+    this.element.removeEventListener('blur', this.#handleBlur)
   }
 
   #render(): void {
+    this.#clearInput()
     this.#clearSettleTimer()
     this.#motion.cancel()
 
@@ -355,6 +364,7 @@ export class WheelColumn {
 
   #beginNativeInteraction = (): void => {
     if (!this.#interactive || this.#destroyed) return
+    this.#clearInput()
     this.#clearSettleTimer()
     const virtual = this.#physicalToVirtual(this.element.scrollTop, this.#motion.position)
     this.#motion.adopt(virtual)
@@ -375,6 +385,7 @@ export class WheelColumn {
     if (delta === 0 || !this.#canConsumeDelta(delta)) return
 
     event.preventDefault()
+    this.#clearInput()
     this.#clearSettleTimer()
     const generation = this.#motion.input(delta, position => this.#clampVirtualPosition(position))
     this.#scheduleSettle(generation)
@@ -425,6 +436,7 @@ export class WheelColumn {
 
   #handleClick = (event: MouseEvent): void => {
     if (!this.#interactive || this.#destroyed) return
+    this.#clearInput()
     const option = findOptionFromEvent(event, this.element)
     if (!option) return
 
@@ -432,6 +444,10 @@ export class WheelColumn {
     if (!Number.isInteger(sourceIndex)) return
     this.focus()
     this.#chooseSourceIndex(sourceIndex)
+  }
+
+  #handleBlur = (): void => {
+    if (this.#inputPreviewIndex >= 0) this.#commitInput()
   }
 
   #enabledSourceIndexes(): number[] {
@@ -445,6 +461,7 @@ export class WheelColumn {
     const item = this.#items[sourceIndex]
     if (!item || item.disabled) return
 
+    this.#clearInput()
     this.#clearSettleTimer()
     const changed = this.#value !== item.value
     this.#value = item.value
@@ -454,6 +471,7 @@ export class WheelColumn {
   }
 
   #move(step: number): void {
+    this.#clearInput()
     const enabled = this.#enabledSourceIndexes()
     if (!enabled.length) return
     const currentPosition = enabled.indexOf(this.#activeSourceIndex())
@@ -473,6 +491,49 @@ export class WheelColumn {
 
   #handleKeydown = (event: KeyboardEvent): void => {
     if (!this.#interactive || this.#destroyed) return
+
+    if (event.key === 'Backspace' && this.#inputBuffer) {
+      event.preventDefault()
+      const characters = Array.from(this.#inputBuffer)
+      characters.pop()
+      const next = characters.join('')
+      if (next) this.#setInput(next)
+      else {
+        this.#clearInput()
+        this.recenter()
+      }
+      return
+    }
+
+    if (event.key === 'Delete' && this.#inputBuffer) {
+      event.preventDefault()
+      this.#clearInput()
+      this.recenter()
+      return
+    }
+
+    if (event.key === 'Enter' && this.#inputPreviewIndex >= 0) {
+      event.preventDefault()
+      this.#commitInput()
+      return
+    }
+
+    if (event.key === 'Tab' && this.#inputPreviewIndex >= 0) {
+      this.#commitInput()
+      return
+    }
+
+    if (
+      !event.ctrlKey
+      && !event.metaKey
+      && !event.altKey
+      && isWheelInputCharacter(event.key)
+    ) {
+      if (this.#appendInput(event.key)) event.preventDefault()
+      return
+    }
+
+    this.#clearInput()
     const pageStep = Math.max(1, this.#visibleItems - 1)
     switch (event.key) {
       case 'ArrowUp': event.preventDefault(); this.#move(-1); break
@@ -499,6 +560,84 @@ export class WheelColumn {
     }
   }
 
+  #appendInput(character: string): boolean {
+    const attempts = this.#inputBuffer
+      ? [`${this.#inputBuffer}${character}`, character]
+      : [character]
+
+    for (const attempt of attempts) {
+      const match = findWheelInputMatch(this.#items, attempt, this.#activeSourceIndex())
+      if (!match) continue
+      this.#inputBuffer = attempt
+      this.#showInputPreview(match.index)
+      if (match.unique) this.#commitInput()
+      else this.#scheduleInputCommit()
+      return true
+    }
+
+    this.#clearInput()
+    return false
+  }
+
+  #setInput(input: string): void {
+    const match = findWheelInputMatch(this.#items, input, this.#activeSourceIndex())
+    if (!match) {
+      this.#clearInput()
+      this.recenter()
+      return
+    }
+    this.#inputBuffer = input
+    this.#showInputPreview(match.index)
+    if (match.unique) this.#commitInput()
+    else this.#scheduleInputCommit()
+  }
+
+  #showInputPreview(sourceIndex: number): void {
+    this.#clearInputPreview()
+    this.#inputPreviewIndex = sourceIndex
+    this.element.classList.add('is-typing')
+    this.element.dataset.input = this.#inputBuffer
+    for (const option of this.element.querySelectorAll<HTMLElement>(`[data-source-index="${sourceIndex}"]`)) {
+      option.classList.add('is-input-preview')
+      option.dataset.input = this.#inputBuffer
+    }
+    this.#motion.reset(this.#centralPositionForSource(sourceIndex))
+    this.#updateActiveDescendant()
+  }
+
+  #scheduleInputCommit(): void {
+    if (this.#inputTimer !== undefined) clearTimeout(this.#inputTimer)
+    this.#inputTimer = setTimeout(() => {
+      this.#inputTimer = undefined
+      this.#commitInput()
+    }, INPUT_COMMIT_DELAY)
+  }
+
+  #commitInput(): void {
+    const sourceIndex = this.#inputPreviewIndex
+    if (sourceIndex < 0) return
+    this.#chooseSourceIndex(sourceIndex)
+  }
+
+  #clearInputPreview(): void {
+    for (const option of this.element.querySelectorAll<HTMLElement>('.sdp-wheel__option.is-input-preview')) {
+      option.classList.remove('is-input-preview')
+      option.removeAttribute('data-input')
+    }
+  }
+
+  #clearInput(): void {
+    if (this.#inputTimer !== undefined) clearTimeout(this.#inputTimer)
+    this.#inputTimer = undefined
+    if (!this.#inputBuffer && this.#inputPreviewIndex < 0) return
+    this.#inputBuffer = ''
+    this.#inputPreviewIndex = -1
+    this.element.classList.remove('is-typing')
+    this.element.removeAttribute('data-input')
+    this.#clearInputPreview()
+    this.#updateActiveDescendant()
+  }
+
   #updateSelectionState(): void {
     for (const option of this.element.querySelectorAll<HTMLElement>('.sdp-wheel__option.is-selected')) {
       option.classList.remove('is-selected')
@@ -518,7 +657,9 @@ export class WheelColumn {
   }
 
   #updateActiveDescendant(): void {
-    const sourceIndex = this.#activeSourceIndex()
+    const sourceIndex = this.#inputPreviewIndex >= 0
+      ? this.#inputPreviewIndex
+      : this.#activeSourceIndex()
     if (sourceIndex < 0) {
       this.element.removeAttribute('aria-activedescendant')
       return
@@ -530,6 +671,60 @@ export class WheelColumn {
   #handleMotionPreferenceChange = (event: MediaQueryListEvent): void => {
     this.#motion.setReducedMotion(event.matches)
   }
+}
+
+interface WheelInputMatch {
+  readonly index: number
+  readonly unique: boolean
+}
+
+function findWheelInputMatch(
+  items: readonly WheelItem[],
+  input: string,
+  currentIndex: number,
+): WheelInputMatch | null {
+  const query = normalizeWheelInput(input)
+  if (!query) return null
+
+  const matches: number[] = []
+  const exact: number[] = []
+  items.forEach((item, index) => {
+    if (item.disabled) return
+    const tokens = wheelInputTokens(item)
+    if (!tokens.some(token => token.startsWith(query))) return
+    matches.push(index)
+    if (tokens.includes(query)) exact.push(index)
+  })
+  if (!matches.length) return null
+
+  const preferred = nearestIndex(exact.length ? exact : matches, currentIndex)
+  return { index: preferred, unique: matches.length === 1 }
+}
+
+function wheelInputTokens(item: WheelItem): readonly string[] {
+  return [...new Set([
+    normalizeWheelInput(String(item.value)),
+    normalizeWheelInput(item.label),
+  ].filter(Boolean))]
+}
+
+function normalizeWheelInput(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, '')
+}
+
+function nearestIndex(indexes: readonly number[], currentIndex: number): number {
+  if (currentIndex < 0) return indexes[0] ?? -1
+  return indexes.reduce((nearest, index) => (
+    Math.abs(index - currentIndex) < Math.abs(nearest - currentIndex) ? index : nearest
+  ), indexes[0] ?? -1)
+}
+
+function isWheelInputCharacter(value: string): boolean {
+  return Array.from(value).length === 1 && /[\p{L}\p{N}]/u.test(value)
 }
 
 function findOptionFromEvent(event: MouseEvent, root: HTMLElement): HTMLElement | null {

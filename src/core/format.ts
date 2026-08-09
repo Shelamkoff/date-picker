@@ -1,3 +1,5 @@
+export type MonthDisplay = 'long' | 'short' | 'narrow' | 'numeric' | '2-digit'
+
 const FORMATTER_CACHE_LIMIT = 32
 const dateFormatterCache = new Map<string, Intl.DateTimeFormat>()
 const monthLabelCache = new Map<string, readonly string[]>()
@@ -42,14 +44,20 @@ export function formatDatePickerValue(
   return formatter.format(value)
 }
 
-export function createMonthFormatter(locale = 'en-US'): (month: number) => string {
-  const labels = cached(monthLabelCache, locale, () => {
-    const formatter = new Intl.DateTimeFormat(locale, { calendar: 'gregory', month: 'short' })
+export function createMonthFormatter(
+  locale = 'en-US',
+  display: MonthDisplay = 'short',
+): (month: number) => string {
+  const key = `${locale}|${display}`
+  const labels = cached(monthLabelCache, key, () => {
+    const formatter = new Intl.DateTimeFormat(locale, { calendar: 'gregory', month: display })
     return Array.from({ length: 12 }, (_, index) => {
       const date = new Date(0)
       date.setFullYear(2000, index, 1)
       date.setHours(12, 0, 0, 0)
-      const label = formatter.format(date).replace(/\.$/, '')
+      const raw = formatter.format(date)
+      if (display === 'numeric' || display === '2-digit') return raw
+      const label = raw.replace(/\.$/, '')
       return label.charAt(0).toLocaleUpperCase(locale) + label.slice(1)
     })
   })

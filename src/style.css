@@ -242,6 +242,23 @@
 }
 
 .sdp-wheel__option.is-selected { color: var(--sdp-text, #f4f5f5); font-weight: 650; }
+
+.sdp-wheel__option.is-input-preview {
+  position: relative;
+  color: transparent;
+  font-weight: 650;
+}
+
+.sdp-wheel__option.is-input-preview::after {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--sdp-text, #f4f5f5);
+  content: attr(data-input);
+  pointer-events: none;
+}
+
 .sdp-wheel__option.is-disabled { cursor: not-allowed; opacity: 0.32; }
 
 .sdp-theme-light,

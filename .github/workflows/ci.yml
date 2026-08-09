@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   test:
@@ -84,70 +84,5 @@ jobs:
           cat /tmp/date-picker-http.log
           exit 1
 
-      - name: Test pointer selections and Now action
+      - name: Test pointer selections and direct wheel entry
         run: node tests/pointer-selection.browser.mjs
-
-  apply-month-display:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master' && contains(github.event.head_commit.message, 'Diagnose month display implementation')
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - name: Checkout master
-        uses: actions/checkout@v6
-        with:
-          ref: master
-          fetch-depth: 0
-
-      - name: Setup Node
-        uses: actions/setup-node@v5
-        with:
-          node-version: '22.12.0'
-          cache: npm
-
-      - name: Apply and verify implementation
-        id: implementation
-        shell: bash
-        run: |
-          set +e
-          {
-            python3 scripts/apply_month_display_and_entry.py
-            apply_status=$?
-            if [ "$apply_status" -ne 0 ]; then
-              echo "__PHASE__=apply"
-              exit "$apply_status"
-            fi
-            npm ci --no-audit --no-fund
-            npm run typecheck
-            npm test
-            npm pack --dry-run --ignore-scripts
-          } > /tmp/month-display.log 2>&1
-          status=$?
-          cat /tmp/month-display.log
-          echo "status=$status" >> "$GITHUB_OUTPUT"
-          exit 0
-
-      - name: Commit diagnostic on failure
-        if: steps.implementation.outputs.status != '0'
-        run: |
-          cp /tmp/month-display.log .implementation-error.log
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add .implementation-error.log
-          git commit -m "Record month display implementation failure"
-          git push origin HEAD:master
-          exit 1
-
-      - name: Commit verified implementation and clean temporary files
-        if: steps.implementation.outputs.status == '0'
-        run: |
-          git config user.name github-actions[bot]
-          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git show cb4fb7c5e14d7ecab5f019565b8b35bd5cb4d4d8:.github/workflows/ci.yml > .github/workflows/ci.yml
-          rm -f .github/workflows/implement-month-display-and-entry.yml
-          rm -f scripts/apply_month_display_and_entry.py
-          rm -f .implementation-error.log
-          rmdir scripts 2>/dev/null || true
-          git add -A
-          git diff --cached --check
-          git commit -m "Add configurable month labels and direct wheel entry"
-          git push origin HEAD:master
