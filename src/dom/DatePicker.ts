@@ -111,9 +111,9 @@ export class DatePicker {
   #documentListening = false
   #viewportListening = false
   #positionFramePending = false
-#focusCheckTimer: ReturnType<typeof setTimeout> | undefined
-#internalPointerId: number | null = null
-#destroyed = false
+  #focusCheckTimer: ReturnType<typeof setTimeout> | undefined
+  #internalPointerId: number | null = null
+  #destroyed = false
   #valueId: string
   #popoverId: string
 
@@ -606,76 +606,76 @@ export class DatePicker {
   }
 
   #clearFocusCheck(): void {
-  if (this.#focusCheckTimer !== undefined) clearTimeout(this.#focusCheckTimer)
-  this.#focusCheckTimer = undefined
-}
-
-#scheduleFocusCheck(): void {
-  this.#clearFocusCheck()
-  this.#focusCheckTimer = setTimeout(() => {
+    if (this.#focusCheckTimer !== undefined) clearTimeout(this.#focusCheckTimer)
     this.#focusCheckTimer = undefined
-    if (
-      this.#destroyed
-      || !this.#controller.isOpen
-      || this.#internalPointerId !== null
-    ) {
+  }
+
+  #scheduleFocusCheck(): void {
+    this.#clearFocusCheck()
+    this.#focusCheckTimer = setTimeout(() => {
+      this.#focusCheckTimer = undefined
+      if (
+        this.#destroyed
+        || !this.#controller.isOpen
+        || this.#internalPointerId !== null
+      ) {
+        return
+      }
+
+      const active = activeElementFor(this.element)
+      if (isNodeLike(active) && this.element.contains(active)) return
+      this.close()
+    }, 0)
+  }
+
+  #eventTargetsPicker(event: Event): boolean {
+    const path = typeof event.composedPath === 'function' ? event.composedPath() : []
+    if (path.includes(this.element)) return true
+    const target = event.target
+    return isNodeLike(target) && this.element.contains(target)
+  }
+
+  #handleFocusOut = (): void => {
+    if (this.#controller.isOpen) this.#scheduleFocusCheck()
+  }
+
+  #handleDocumentPointerDown = (event: PointerEvent): void => {
+    if (this.#eventTargetsPicker(event)) {
+      this.#internalPointerId = event.pointerId
+      this.#clearFocusCheck()
       return
     }
 
-    const active = activeElementFor(this.element)
-    if (isNodeLike(active) && this.element.contains(active)) return
-    this.close()
-  }, 0)
-}
-
-#eventTargetsPicker(event: Event): boolean {
-  const path = typeof event.composedPath === 'function' ? event.composedPath() : []
-  if (path.includes(this.element)) return true
-  const target = event.target
-  return isNodeLike(target) && this.element.contains(target)
-}
-
-#handleFocusOut = (): void => {
-  if (this.#controller.isOpen) this.#scheduleFocusCheck()
-}
-
-#handleDocumentPointerDown = (event: PointerEvent): void => {
-  if (this.#eventTargetsPicker(event)) {
-    this.#internalPointerId = event.pointerId
+    this.#internalPointerId = null
     this.#clearFocusCheck()
-    return
+    this.close()
   }
 
-  this.#internalPointerId = null
-  this.#clearFocusCheck()
-  this.close()
-}
-
-#handleDocumentPointerEnd = (event: PointerEvent): void => {
-  if (this.#internalPointerId !== event.pointerId) return
-  this.#internalPointerId = null
-  this.#scheduleFocusCheck()
-}
+  #handleDocumentPointerEnd = (event: PointerEvent): void => {
+    if (this.#internalPointerId !== event.pointerId) return
+    this.#internalPointerId = null
+    this.#scheduleFocusCheck()
+  }
 
   #handleViewportChange = (): void => this.#queuePopoverPosition()
 
   #attachDocumentPointer(): void {
-  if (this.#documentListening) return
-  this.#document.addEventListener('pointerdown', this.#handleDocumentPointerDown, true)
-  this.#document.addEventListener('pointerup', this.#handleDocumentPointerEnd, true)
-  this.#document.addEventListener('pointercancel', this.#handleDocumentPointerEnd, true)
-  this.#documentListening = true
-}
+    if (this.#documentListening) return
+    this.#document.addEventListener('pointerdown', this.#handleDocumentPointerDown, true)
+    this.#document.addEventListener('pointerup', this.#handleDocumentPointerEnd, true)
+    this.#document.addEventListener('pointercancel', this.#handleDocumentPointerEnd, true)
+    this.#documentListening = true
+  }
 
-#detachDocumentPointer(): void {
-  this.#clearFocusCheck()
-  this.#internalPointerId = null
-  if (!this.#documentListening) return
-  this.#document.removeEventListener('pointerdown', this.#handleDocumentPointerDown, true)
-  this.#document.removeEventListener('pointerup', this.#handleDocumentPointerEnd, true)
-  this.#document.removeEventListener('pointercancel', this.#handleDocumentPointerEnd, true)
-  this.#documentListening = false
-}
+  #detachDocumentPointer(): void {
+    this.#clearFocusCheck()
+    this.#internalPointerId = null
+    if (!this.#documentListening) return
+    this.#document.removeEventListener('pointerdown', this.#handleDocumentPointerDown, true)
+    this.#document.removeEventListener('pointerup', this.#handleDocumentPointerEnd, true)
+    this.#document.removeEventListener('pointercancel', this.#handleDocumentPointerEnd, true)
+    this.#documentListening = false
+  }
 
   #attachViewportListeners(): void {
     const window = this.#document.defaultView
