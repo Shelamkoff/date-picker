@@ -1,0 +1,118 @@
+name: Verify published pointer interactions
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      EXPECTED_SHA: c42692134f6a733497b2639e604e75a6c040407f
+    steps:
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.12.0'
+
+      - name: Wait for the new GitHub Pages artifact
+        run: |
+          for attempt in {1..90}; do
+            if curl --fail --silent --show-error --location https://shelamkoff.github.io/date-picker/ -o /tmp/date-picker-live.html \
+              && grep -F "./dist/${EXPECTED_SHA}/index.js" /tmp/date-picker-live.html \
+              && grep -F "./style-${EXPECTED_SHA}.css" /tmp/date-picker-live.html; then
+              exit 0
+            fi
+            sleep 5
+          done
+          cat /tmp/date-picker-live.html || true
+          exit 1
+
+      - name: Install browser runner
+        run: |
+          mkdir -p /tmp/pointer-pages-check
+          cd /tmp/pointer-pages-check
+          npm init -y >/dev/null
+          npm install --no-audit --no-fund @playwright/test@1.62.1
+          npx playwright install --with-deps chromium
+
+      - name: Exercise the published picker with real left clicks
+        working-directory: /tmp/pointer-pages-check
+        run: |
+          cat > verify.mjs <<'EOF'
+          import assert from 'node:assert/strict'
+          import { chromium } from '@playwright/test'
+
+          const browser = await chromium.launch()
+          const page = await browser.newPage({ viewport: { width: 1280, height: 800 } })
+          const errors = []
+          page.on('pageerror', error => errors.push(`pageerror: ${error.stack ?? error.message}`))
+          page.on('console', message => {
+            if (message.type() === 'error') errors.push(`console: ${message.text()}`)
+          })
+          page.on('requestfailed', request => {
+            errors.push(`requestfailed: ${request.url()} — ${request.failure()?.errorText ?? 'unknown'}`)
+          })
+
+          await page.goto('https://shelamkoff.github.io/date-picker/', { waitUntil: 'networkidle' })
+          await page.locator('#hero-picker .sdp-datepicker__trigger').click()
+          const popover = page.locator('#hero-picker .sdp-datepicker__popover')
+          await popover.waitFor({ state: 'visible' })
+
+          async function selectedValue(label) {
+            return Number(await page.locator(
+              `#hero-picker .sdp-wheel[aria-label="${label}"] [role="option"][aria-selected="true"]`,
+            ).getAttribute('data-value'))
+          }
+
+          async function clickDifferent(label, candidates, hold = false) {
+            const current = await selectedValue(label)
+            const next = candidates.find(value => value !== current)
+            assert.notEqual(next, undefined)
+            const option = page.locator(
+              `#hero-picker .sdp-wheel[aria-label="${label}"] [role="option"][data-value="${next}"]`,
+            )
+
+            if (hold) {
+              await option.scrollIntoViewIfNeeded()
+              const box = await option.boundingBox()
+              assert.ok(box)
+              await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+              await page.mouse.down()
+              await page.waitForTimeout(150)
+              assert.equal(await popover.evaluate(node => !node.hidden), true, `${label} pointerdown closed the popover`)
+              await page.mouse.up()
+            }
+            else {
+              await option.click()
+            }
+
+            assert.equal(await popover.evaluate(node => !node.hidden), true, `${label} click closed the popover`)
+            assert.equal(await selectedValue(label), next, `${label} selection was not applied`)
+          }
+
+          await clickDifferent('Month', Array.from({ length: 12 }, (_, index) => index + 1), true)
+
+          const yearOptions = await page.locator(
+            '#hero-picker .sdp-wheel[aria-label="Year"] [role="option"]',
+          ).evaluateAll(options => options.map(option => Number(option.dataset.value)))
+          await clickDifferent('Year', yearOptions)
+          await clickDifferent('Hours', Array.from({ length: 24 }, (_, index) => index))
+
+          const minuteOptions = await page.locator(
+            '#hero-picker .sdp-wheel[aria-label="Minutes"] [role="option"]',
+          ).evaluateAll(options => options.map(option => Number(option.dataset.value)))
+          await clickDifferent('Minutes', minuteOptions)
+
+          const beforeNow = await page.locator('#hero-value').textContent()
+          await page.locator('#hero-picker .sdp-datepicker__now').click()
+          assert.equal(await popover.evaluate(node => !node.hidden), true, 'Now click closed the popover')
+          await page.waitForFunction(before => document.querySelector('#hero-value')?.textContent !== before, beforeNow)
+
+          assert.deepEqual(errors, [], errors.join('\n'))
+          await browser.close()
+          EOF
+          node verify.mjs
