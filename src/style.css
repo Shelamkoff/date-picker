@@ -111,7 +111,6 @@
   display: grid;
   place-items: center;
   border: 0;
-  border-inline-start: 1px solid var(--sdp-line-soft, #1d2022);
   background: transparent;
   color: var(--sdp-muted, #8b9195);
   padding: 0;
@@ -119,7 +118,6 @@
 }
 
 .sdp-datepicker__clear:hover:not(:disabled) {
-  background: var(--sdp-surface-hover, #191c1e);
   color: var(--sdp-text, #f4f5f5);
 }
 
