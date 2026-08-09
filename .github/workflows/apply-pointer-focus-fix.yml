@@ -1,20 +1,21 @@
 name: Apply pointer focus fix
 
 on:
-  push:
-    branches: [fix-pointer-selection]
-    paths:
-      - .github/workflows/apply-pointer-focus-fix.yml
+  pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
   apply:
+    if: github.head_ref == 'fix-pointer-selection' || github.ref_name == 'fix-pointer-selection'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: fix-pointer-selection
       - uses: actions/setup-node@v5
         with:
           node-version: '22.12.0'
@@ -167,5 +168,3 @@ jobs:
           git diff --cached --check
           git commit -m "Preserve internal pointer selections across focus changes"
           git push
-
-# Triggered after the workflow existed on the branch.
