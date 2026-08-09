@@ -12,14 +12,18 @@ page.on('pageerror', error => errors.push(`pageerror: ${error.stack ?? error.mes
 page.on('console', message => {
   if (message.type() === 'error') errors.push(`console: ${message.text()}`)
 })
+page.on('requestfailed', request => {
+  errors.push(`requestfailed: ${request.url()} — ${request.failure()?.errorText ?? 'unknown'}`)
+})
 
 await page.goto(process.env.AUDIT_URL ?? 'http://127.0.0.1:4173/index.html', { waitUntil: 'networkidle' })
 await page.evaluate(async () => {
   const { DatePicker } = await import('./dist/index.js')
   const host = document.createElement('div')
-  host.id = 'pointer-audit'
+  host.id = 'pointer-regression'
   host.style.width = '360px'
   document.body.prepend(host)
+
   const changes = []
   const picker = new DatePicker(host, {
     value: new Date(2026, 5, 15, 12, 30),
@@ -34,20 +38,27 @@ await page.evaluate(async () => {
       changes.push({ value: value?.getTime() ?? null, reason })
     },
   })
-  window.__pointerAudit = { picker, changes }
+
+  window.__pointerRegression = { picker, changes }
   picker.open()
 })
 
-const popover = page.locator('#pointer-audit .sdp-datepicker__popover')
+const popover = page.locator('#pointer-regression .sdp-datepicker__popover')
 await popover.waitFor({ state: 'visible' })
 
 function optionFor(label, value) {
-  return page.locator(`#pointer-audit .sdp-wheel[aria-label="${label}"] [role="option"][data-value="${value}"]`)
+  return page.locator(
+    `#pointer-regression .sdp-wheel[aria-label="${label}"] [role="option"][data-value="${value}"]`,
+  )
+}
+
+async function assertPopoverOpen(message) {
+  assert.equal(await popover.evaluate(node => !node.hidden), true, message)
 }
 
 async function clickOption(label, value, assertion) {
   await optionFor(label, value).click()
-  assert.equal(await popover.evaluate(node => !node.hidden), true, `${label} click closed the popover`)
+  await assertPopoverOpen(`${label} click closed the popover`)
   await assertion()
 }
 
@@ -56,39 +67,40 @@ async function holdAndClickOption(label, value, assertion) {
   await option.scrollIntoViewIfNeeded()
   const box = await option.boundingBox()
   assert.ok(box)
+
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
   await page.mouse.down()
   await page.waitForTimeout(150)
-  assert.equal(await popover.evaluate(node => !node.hidden), true, `${label} pointerdown closed the popover`)
+  await assertPopoverOpen(`${label} pointerdown closed the popover`)
   await page.mouse.up()
-  assert.equal(await popover.evaluate(node => !node.hidden), true, `${label} click closed the popover`)
+  await assertPopoverOpen(`${label} click closed the popover`)
   await assertion()
 }
 
 await holdAndClickOption('Month', 7, async () => {
-  assert.equal(await page.evaluate(() => window.__pointerAudit.picker.value.getMonth() + 1), 7)
+  assert.equal(await page.evaluate(() => window.__pointerRegression.picker.value.getMonth() + 1), 7)
 })
 await clickOption('Year', 2027, async () => {
-  assert.equal(await page.evaluate(() => window.__pointerAudit.picker.value.getFullYear()), 2027)
+  assert.equal(await page.evaluate(() => window.__pointerRegression.picker.value.getFullYear()), 2027)
 })
 await clickOption('Hours', 13, async () => {
-  assert.equal(await page.evaluate(() => window.__pointerAudit.picker.value.getHours()), 13)
+  assert.equal(await page.evaluate(() => window.__pointerRegression.picker.value.getHours()), 13)
 })
 await clickOption('Minutes', 35, async () => {
-  assert.equal(await page.evaluate(() => window.__pointerAudit.picker.value.getMinutes()), 35)
+  assert.equal(await page.evaluate(() => window.__pointerRegression.picker.value.getMinutes()), 35)
 })
 
-await page.locator('#pointer-audit .sdp-datepicker__now').click()
-assert.equal(await popover.evaluate(node => !node.hidden), true, 'Now click closed the popover')
+await page.locator('#pointer-regression .sdp-datepicker__now').click()
+await assertPopoverOpen('Now click closed the popover')
 const nowState = await page.evaluate(() => {
-  const value = window.__pointerAudit.picker.value
+  const value = window.__pointerRegression.picker.value
   return {
     year: value.getFullYear(),
     month: value.getMonth() + 1,
     day: value.getDate(),
     hour: value.getHours(),
     minute: value.getMinutes(),
-    reasons: window.__pointerAudit.changes.map(change => change.reason),
+    reasons: window.__pointerRegression.changes.map(change => change.reason),
   }
 })
 assert.deepEqual(nowState, {
@@ -99,6 +111,17 @@ assert.deepEqual(nowState, {
   minute: 45,
   reasons: ['select', 'select', 'select', 'select', 'now'],
 })
+
+// Keyboard or programmatic focus leaving the widget must still close it.
+await page.evaluate(() => {
+  const outside = document.createElement('button')
+  outside.id = 'outside-focus-target'
+  outside.textContent = 'Outside'
+  document.body.append(outside)
+  outside.focus()
+})
+await page.waitForTimeout(25)
+assert.equal(await popover.evaluate(node => node.hidden), true, 'focus leaving the picker did not close it')
 
 assert.deepEqual(errors, [], errors.join('\n'))
 console.log(JSON.stringify({ browser: browserName, nowState }, null, 2))

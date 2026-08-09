@@ -41,3 +41,48 @@ jobs:
 
       - name: Validate package contents
         run: npm pack --dry-run --ignore-scripts
+
+  pointer-interactions:
+    name: Pointer interactions (Chromium)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BROWSER: chromium
+      AUDIT_URL: http://127.0.0.1:4173/index.html
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22.12.0'
+          cache: npm
+
+      - name: Install library dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Install pinned browser test runner
+        run: npm install --no-save --package-lock=false --no-audit --no-fund @playwright/test@1.62.1
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      - name: Build library
+        run: npm run build
+
+      - name: Start demo server
+        run: |
+          cp src/style.css style.css
+          python3 -m http.server 4173 --bind 127.0.0.1 > /tmp/date-picker-http.log 2>&1 &
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4173/index.html >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat /tmp/date-picker-http.log
+          exit 1
+
+      - name: Test pointer selections and Now action
+        run: node tests/pointer-selection.browser.mjs
