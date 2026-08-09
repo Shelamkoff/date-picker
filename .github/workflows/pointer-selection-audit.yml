@@ -1,0 +1,44 @@
+name: Pointer selection audit
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+    env:
+      BROWSER: ${{ matrix.browser }}
+      AUDIT_URL: http://127.0.0.1:4173/index.html
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.12.0'
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Install Playwright for the audit
+        run: |
+          npm install --no-save --package-lock=false --no-audit --no-fund @playwright/test
+          node -p "require('@playwright/test/package.json').version"
+      - run: npx playwright install --with-deps "${BROWSER}"
+      - run: npm run build
+      - name: Start local demo
+        run: |
+          cp src/style.css style.css
+          python3 -m http.server 4173 --bind 127.0.0.1 > /tmp/date-picker-http.log 2>&1 &
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:4173/index.html >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/date-picker-http.log
+          exit 1
+      - run: node tests/pointer-selection-audit.mjs
