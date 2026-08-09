@@ -167,3 +167,5 @@ jobs:
           git diff --cached --check
           git commit -m "Preserve internal pointer selections across focus changes"
           git push
+
+# Triggered after the workflow existed on the branch.
