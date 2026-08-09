@@ -1,0 +1,169 @@
+name: Apply pointer focus fix
+
+on:
+  push:
+    branches: [fix-pointer-selection]
+    paths:
+      - .github/workflows/apply-pointer-focus-fix.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v5
+        with:
+          node-version: '22.12.0'
+          cache: npm
+
+      - name: Keep focusout from cancelling internal pointer actions
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          path = Path('src/dom/DatePicker.ts')
+          text = path.read_text()
+
+          old_fields = '''  #documentListening = false
+          #viewportListening = false
+          #positionFramePending = false
+          #destroyed = false
+          '''.replace('          ', '')
+          new_fields = '''  #documentListening = false
+          #viewportListening = false
+          #positionFramePending = false
+          #focusCheckTimer: ReturnType<typeof setTimeout> | undefined
+          #internalPointerId: number | null = null
+          #destroyed = false
+          '''.replace('          ', '')
+          if old_fields not in text:
+              raise SystemExit('DatePicker field target not found')
+          text = text.replace(old_fields, new_fields, 1)
+
+          old_handlers = '''  #handleFocusOut = (): void => {
+            if (!this.#controller.isOpen) return
+            queueMicrotask(() => {
+              if (this.#destroyed || !this.#controller.isOpen) return
+              const active = activeElementFor(this.element)
+              if (isNodeLike(active) && this.element.contains(active)) return
+              this.close()
+            })
+          }
+
+          #handleDocumentPointerDown = (event: PointerEvent): void => {
+            const path = typeof event.composedPath === 'function' ? event.composedPath() : []
+            if (path.includes(this.element)) return
+            const target = event.target
+            if (isNodeLike(target) && this.element.contains(target)) return
+            this.close()
+          }
+          '''.replace('          ', '')
+          new_handlers = '''  #clearFocusCheck(): void {
+            if (this.#focusCheckTimer !== undefined) clearTimeout(this.#focusCheckTimer)
+            this.#focusCheckTimer = undefined
+          }
+
+          #scheduleFocusCheck(): void {
+            this.#clearFocusCheck()
+            this.#focusCheckTimer = setTimeout(() => {
+              this.#focusCheckTimer = undefined
+              if (
+                this.#destroyed
+                || !this.#controller.isOpen
+                || this.#internalPointerId !== null
+              ) {
+                return
+              }
+
+              const active = activeElementFor(this.element)
+              if (isNodeLike(active) && this.element.contains(active)) return
+              this.close()
+            }, 0)
+          }
+
+          #eventTargetsPicker(event: Event): boolean {
+            const path = typeof event.composedPath === 'function' ? event.composedPath() : []
+            if (path.includes(this.element)) return true
+            const target = event.target
+            return isNodeLike(target) && this.element.contains(target)
+          }
+
+          #handleFocusOut = (): void => {
+            if (this.#controller.isOpen) this.#scheduleFocusCheck()
+          }
+
+          #handleDocumentPointerDown = (event: PointerEvent): void => {
+            if (this.#eventTargetsPicker(event)) {
+              this.#internalPointerId = event.pointerId
+              this.#clearFocusCheck()
+              return
+            }
+
+            this.#internalPointerId = null
+            this.#clearFocusCheck()
+            this.close()
+          }
+
+          #handleDocumentPointerEnd = (event: PointerEvent): void => {
+            if (this.#internalPointerId !== event.pointerId) return
+            this.#internalPointerId = null
+            this.#scheduleFocusCheck()
+          }
+          '''.replace('          ', '')
+          if old_handlers not in text:
+              raise SystemExit('DatePicker focus handler target not found')
+          text = text.replace(old_handlers, new_handlers, 1)
+
+          old_listeners = '''  #attachDocumentPointer(): void {
+            if (this.#documentListening) return
+            this.#document.addEventListener('pointerdown', this.#handleDocumentPointerDown, true)
+            this.#documentListening = true
+          }
+
+          #detachDocumentPointer(): void {
+            if (!this.#documentListening) return
+            this.#document.removeEventListener('pointerdown', this.#handleDocumentPointerDown, true)
+            this.#documentListening = false
+          }
+          '''.replace('          ', '')
+          new_listeners = '''  #attachDocumentPointer(): void {
+            if (this.#documentListening) return
+            this.#document.addEventListener('pointerdown', this.#handleDocumentPointerDown, true)
+            this.#document.addEventListener('pointerup', this.#handleDocumentPointerEnd, true)
+            this.#document.addEventListener('pointercancel', this.#handleDocumentPointerEnd, true)
+            this.#documentListening = true
+          }
+
+          #detachDocumentPointer(): void {
+            this.#clearFocusCheck()
+            this.#internalPointerId = null
+            if (!this.#documentListening) return
+            this.#document.removeEventListener('pointerdown', this.#handleDocumentPointerDown, true)
+            this.#document.removeEventListener('pointerup', this.#handleDocumentPointerEnd, true)
+            this.#document.removeEventListener('pointercancel', this.#handleDocumentPointerEnd, true)
+            this.#documentListening = false
+          }
+          '''.replace('          ', '')
+          if old_listeners not in text:
+              raise SystemExit('DatePicker pointer listener target not found')
+          path.write_text(text.replace(old_listeners, new_listeners, 1))
+          PY
+
+      - name: Verify source fix
+        run: |
+          npm ci --no-audit --no-fund
+          npm run typecheck
+          npm test
+
+      - name: Commit source fix
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add src/dom/DatePicker.ts
+          git diff --cached --check
+          git commit -m "Preserve internal pointer selections across focus changes"
+          git push
