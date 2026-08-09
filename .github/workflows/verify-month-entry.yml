@@ -1,0 +1,78 @@
+name: Verify month labels and direct wheel entry
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - .github/workflows/verify-month-entry.yml
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@v6
+        with:
+          ref: master
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22.12.0'
+          cache: npm
+
+      - name: Run verification
+        id: verify
+        shell: bash
+        run: |
+          set +e
+          {
+            npm ci --no-audit --no-fund
+            npm run typecheck
+            npm test
+            npm pack --dry-run --ignore-scripts
+            npm install --no-save --package-lock=false --no-audit --no-fund @playwright/test@1.62.1
+            npx playwright install --with-deps chromium
+            npm run build
+            cp src/style.css style.css
+            python3 -m http.server 4173 --bind 127.0.0.1 > /tmp/date-picker-http.log 2>&1 &
+            server_pid=$!
+            for attempt in {1..30}; do
+              if curl --fail --silent http://127.0.0.1:4173/index.html >/dev/null; then
+                break
+              fi
+              sleep 1
+            done
+            BROWSER=chromium AUDIT_URL=http://127.0.0.1:4173/index.html node tests/pointer-selection.browser.mjs
+            kill "$server_pid" 2>/dev/null || true
+          } > /tmp/month-entry-verification.log 2>&1
+          status=$?
+          cat /tmp/month-entry-verification.log
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Record result and remove one-time workflow
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          rm .github/workflows/verify-month-entry.yml
+          rm -f .verification-error.log
+          if [ "${{ steps.verify.outputs.status }}" != "0" ]; then
+            cp /tmp/month-entry-verification.log .verification-error.log
+            message="Record month entry verification failure"
+          else
+            message="Verify configurable month labels and direct wheel entry"
+          fi
+          git add -A
+          git diff --cached --check
+          git commit -m "$message"
+          git push origin HEAD:master
+
+      - name: Fail workflow when verification failed
+        if: steps.verify.outputs.status != '0'
+        run: exit 1
