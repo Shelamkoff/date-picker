@@ -440,7 +440,10 @@ try {
     document.body.append(host)
     const widget = new CalendarDatePicker(host, {
       now: () => new Date(2026, 9, 9, 12),
-      disabledDate() { throw new Error('render interrupted') },
+      disabledDate(date) {
+        if (date.getMonth() === 9 && date.getDate() === 20) throw new Error('render interrupted')
+        return false
+      },
     })
     let threw = false
     try { widget.open() }
@@ -456,6 +459,37 @@ try {
     return { threw, safelyClosed, recovered }
   })
   assert.deepEqual(failedOpenRecovery, { threw: true, safelyClosed: true, recovered: true })
+
+
+  // A new calendar with no value should focus an in-month date, even when
+  // the first week shows leading dates from the preceding month.
+  const initialFocus = await page.evaluate(async () => {
+    const { CalendarDatePicker } = await import('./dist/index.js')
+    const now = () => new Date(2026, 9, 9, 12)
+    const popupHost = document.createElement('div')
+    document.body.append(popupHost)
+    const popup = new CalendarDatePicker(popupHost, { now, locale: 'en-GB' })
+    popup.open()
+    await Promise.resolve()
+    const popupButton = popupHost.querySelector('.sdp-calendar__day:focus')
+    const popupCurrentMonth = popupButton?.textContent === '1'
+      && !popupButton?.classList.contains('is-outside')
+    popup.destroy()
+    popupHost.remove()
+
+    const inlineHost = document.createElement('div')
+    document.body.append(inlineHost)
+    const inline = new CalendarDatePicker(inlineHost, { now, inline: true, locale: 'en-GB' })
+    inline.focus()
+    const inlineButton = inlineHost.querySelector('.sdp-calendar__day:focus')
+    const inlineCurrentMonth = inlineButton?.textContent === '1'
+      && !inlineButton?.classList.contains('is-outside')
+    inline.destroy()
+    inlineHost.remove()
+    return { popupCurrentMonth, inlineCurrentMonth }
+  })
+  assert.deepEqual(initialFocus, { popupCurrentMonth: true, inlineCurrentMonth: true },
+    'initial focus must prefer the first available day in the displayed month')
 
   await page.evaluate(() => {
     window.__calendarRange.picker.destroy()

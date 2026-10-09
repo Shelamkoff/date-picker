@@ -245,7 +245,7 @@ test('navigation rolls back the visible month if disabledDate throws', () => {
   const controller = new CalendarSelectionController({
     now: () => today,
     disabledDate: candidate => {
-      if (candidate.getMonth() === 10) throw new Error('november predicate error')
+      if (candidate.getMonth() === 10 && candidate.getDate() === 20) throw new Error('november predicate error')
       return false
     },
   })

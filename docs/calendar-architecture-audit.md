@@ -78,3 +78,10 @@ Source-based findings and new regression cases:
 Verification: [responsive and Chromium CI run](https://github.com/Shelamkoff/date-picker/actions/runs/37994341655) passed after the final week-row sizing fix, alongside Node 20/22 tests over five time zones. The run includes screenshots at 320, 375, 768, 900 and 1280 pixels in both themes, plus 200% root text sizing. Visual captures were inspected after the run. GitHub Pages is automatically rebuilt for changes to `master`.
 
 Still outside this verification scope: manual screen-reader testing, Firefox/WebKit comparison, native browser zoom (which is not identical to changing root font size), 400% zoom, clipped/overflowing ancestor containers and advanced calendar features not yet implemented. Do not claim universal WCAG compliance from the available evidence.
+
+## Further verification: 2026-10-09
+
+- Verified a failure during the initial popup grid render must roll back `isOpen`, `aria-expanded` and DOM visibility. A callback may safely throw on a later cell while allowing today's date, and recovery through `update({ disabledDate: null })` is tested.
+- Month navigation now probes the candidate calendar month before publishing it; a throwing `disabledDate` callback rolls the month back and emits no navigation event. The regression fixture checks a date outside the current month's trailing cells so the failure is isolated to the requested navigation.
+- Found an initial-focus bug: with an empty selection and visible adjacent-month dates, `open()` and `focus()` could focus a leading date from the previous month. The focus helper now prefers the first selectable date in the displayed month, consistent with roving tabindex from grid rendering.
+- Existing wheel-picker behaviour is unchanged. Unverified cross-browser and browser-zoom scenarios remain tracked above.

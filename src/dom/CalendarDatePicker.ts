@@ -501,7 +501,12 @@ export class CalendarDatePicker {
     return this.#grid.querySelector<HTMLButtonElement>(`[data-day-ordinal="${ordinal}"]`)
   }
   #firstFocusableDay(): HTMLButtonElement | null {
-    return this.#grid.querySelector<HTMLButtonElement>('[data-day-ordinal]:not(:disabled)')
+    // The leading cells may belong to the previous month. Prefer the roving
+    // tabindex target chosen by renderGrid, then another in-month date.
+    const preferred = this.#focusedDay === null ? null : this.#dayByOrdinal(this.#focusedDay)
+    if (preferred && !preferred.disabled) return preferred
+    return this.#grid.querySelector<HTMLButtonElement>('[data-day-ordinal]:not(:disabled):not(.is-outside)')
+      ?? this.#grid.querySelector<HTMLButtonElement>('[data-day-ordinal]:not(:disabled)')
   }
   #focusInitial(): void {
     const value = this.#model.value
