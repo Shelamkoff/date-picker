@@ -137,3 +137,18 @@ test('initial and updated month are clamped to the allowed month interval', () =
   assert.equal(picker.month, 2)
   assert.equal(picker.canNavigate(1), true)
 })
+
+test('configuration errors from disabledDate propagate without losing current selection', () => {
+  const selected = date(2026, 10, 9)
+  const picker = new CalendarSelectionController({ now: () => selected }, selected)
+  const events = []
+  picker.subscribe(event => events.push(event))
+  assert.throws(() => picker.update({ disabledDate: () => { throw new Error('callback failed') } }), /callback failed/)
+  assert.deepEqual(day(picker.value), [2026, 10, 9])
+  assert.equal(picker.isSelectable(selected), true, 'previous options remain in force')
+  assert.deepEqual(events, [], 'failed update does not emit events')
+  assert.throws(() => picker.update({ disabledDate: () => { throw new RangeError('app error') } }), /app error/)
+  assert.deepEqual(day(picker.value), [2026, 10, 9])
+  picker.update({ disabledDate: () => true })
+  assert.equal(picker.value, null, 'genuinely excluded values are cleared on options change')
+})

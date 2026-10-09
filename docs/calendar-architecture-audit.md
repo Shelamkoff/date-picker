@@ -31,3 +31,11 @@ Reviewed `src/core/calendar.ts`, `controller.ts`, `types.ts`, `format.ts`, the p
 ### Browser locale compatibility (confirmed and fixed)
 
 The initial implementation used only `Intl.Locale.prototype.weekInfo`; Chromium 136+ (and other modern engines) instead expose `getWeekInfo()`, so `en-US` calendars silently defaulted to Monday. The calendar now checks `getWeekInfo()` first and uses the older property on runtimes that still implement it. Browser tests explicitly verify `en-US` = Sunday and `en-GB` = Monday. Background: MDN's `Intl.Locale.getWeekInfo()` compatibility note.
+
+## Recheck: 2026-10-09
+
+- Confirmed that the calendar read-only state previously set native `disabled` on all day buttons. Read-only dates now remain keyboard-focusable with `aria-disabled`, while selection remains blocked.
+- Confirmed that viewport-induced popover `max-height` persisted into later placements. It is cleared before remeasuring and when the popover closes.
+- Confirmed that a throwing user `disabledDate` callback was swallowed by a blanket `catch` during `CalendarSelectionController.update()`, silently discarding the selection. Constraint invalidation now clears an unavailable selection deliberately, while callback exceptions propagate and restore the previous controller options and value.
+- The demo now exposes calendar and wheel modes on the primary page, keeps example-specific styling in `demo.css`, serves `src/style.css` directly during development, and versions published CSS/JS assets for Pages.
+- Files preserved after cleanup: source, tests, README, CI/Pages workflows, the demo and this audit. There were no tracked build artifacts or obsolete source trees that could safely be removed.

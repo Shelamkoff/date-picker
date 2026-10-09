@@ -122,6 +122,9 @@ function matches(a: CalendarSelectionValue, b: CalendarSelectionValue, mode: Cal
     && (left.end === null ? right.end === null : right.end !== null && dayNumber(left.end) === dayNumber(right.end))
 }
 
+/** Internal signal for a selection rejected by updated constraints. */
+class UnavailableSelectionError extends RangeError {}
+
 interface ResolvedOptions {
   readonly minDate: Date | null
   readonly maxDate: Date | null
@@ -259,7 +262,7 @@ export class CalendarSelectionController {
     const normalize = (date: Date): Date => {
       if (!isValidDate(date)) throw new RangeError('Selection contains an invalid Date')
       const normalized = this.#selectable(dayNumber(date))
-      if (!normalized) throw new RangeError('Selection contains a disabled or out-of-bounds date')
+      if (!normalized) throw new UnavailableSelectionError('Selection contains a disabled or out-of-bounds date')
       return normalized
     }
     if (this.mode === 'single') {
@@ -274,7 +277,7 @@ export class CalendarSelectionController {
         const normalized = normalize(date)
         sorted.set(dayNumber(normalized), normalized)
       }
-      if (this.#options.maxSelections !== null && sorted.size > this.#options.maxSelections) throw new RangeError('Too many selected dates')
+      if (this.#options.maxSelections !== null && sorted.size > this.#options.maxSelections) throw new UnavailableSelectionError('Too many selected dates')
       return [...sorted.entries()].sort((a, b) => a[0] - b[0]).map(([, date]) => date)
     }
     if (value === null || Array.isArray(value) || isValidDate(value) || typeof value !== 'object') {
@@ -288,7 +291,7 @@ export class CalendarSelectionController {
     const start = normalize(range.start)
     if (range.end === null) return { start, end: null }
     const end = normalize(range.end)
-    if (!this.#rangeAllowed(dayNumber(start), dayNumber(end))) throw new RangeError('Invalid date range')
+    if (!this.#rangeAllowed(dayNumber(start), dayNumber(end))) throw new UnavailableSelectionError('Invalid date range')
     return dayNumber(start) <= dayNumber(end) ? { start, end } : { start: end, end: start }
   }
 
@@ -305,9 +308,18 @@ export class CalendarSelectionController {
   update(options: CalendarSelectionOptions): void {
     if (options.mode !== undefined && options.mode !== this.mode) throw new RangeError('Cannot change selection mode of an existing picker')
     const resolved = resolveOptions(options, this.#options)
+    const previousOptions = this.#options
     this.#options = resolved
-    try { this.#value = this.#normalizeValue(this.#value) }
-    catch { this.#value = emptyValue(this.mode) }
+    let next: CalendarSelectionValue
+    try { next = this.#normalizeValue(this.#value) }
+    catch (error) {
+      if (!(error instanceof UnavailableSelectionError)) {
+        this.#options = previousOptions
+        throw error
+      }
+      next = emptyValue(this.mode)
+    }
+    this.#value = next
     this.#hoverDay = null
     this.#clampViewToBounds()
     this.#setMonth(this.#year, this.#month)
