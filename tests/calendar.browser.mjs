@@ -51,6 +51,13 @@ try {
     .filter({ hasText: new RegExp('^' + date + '$') })
   const rangePopover = page.locator('#cal-range-regression .sdp-datepicker__popover')
   await day('cal-range-regression', 12).click()
+  console.log('calendar-range-first-selection', await page.evaluate(() => {
+    const root = document.getElementById('cal-range-regression')
+    const picker = window.__calendarRange.picker
+    return { open: picker.isOpen, hidden: root.querySelector('.sdp-datepicker__popover').hidden,
+      start: picker.value.start?.getDate() ?? null, end: picker.value.end?.getDate() ?? null,
+      active: document.activeElement?.tagName }
+  }))
   assert.equal(await rangePopover.isVisible(), true, 'start of range must keep the calendar open')
   await day('cal-range-regression', 18).hover()
   assert.equal(await day('cal-range-regression', 15).evaluate(element => element.classList.contains('is-preview')), true, 'hover previews the range')

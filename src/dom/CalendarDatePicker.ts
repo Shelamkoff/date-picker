@@ -132,6 +132,7 @@ export class CalendarDatePicker {
   #focusedDay: number | null = null
   #positionFrame: number | null = null
   #listening = false
+  #replacingGrid = false
   #id: string
   #explicitWeekStart: boolean
   static #counter = 0
@@ -403,7 +404,7 @@ export class CalendarDatePicker {
     this.#trigger.focus()
   }
   #onFocusOut = (): void => {
-    if (!this.#open) return
+    if (!this.#open || this.#replacingGrid) return
     queueMicrotask(() => {
       if (!this.#open || this.#destroyed) return
       const root = this.element.getRootNode() as Document | ShadowRoot
@@ -529,8 +530,14 @@ export class CalendarDatePicker {
       }
       fragment.append(row)
     }
-    this.#grid.replaceChildren(fragment)
-    if (restoreFocus && activeOrdinal !== null) this.#dayByOrdinal(activeOrdinal)?.focus({ preventScroll: true })
+    // Replacing a focused day button emits focusout; that is not an external
+    // focus transition and must not dismiss a pending date range.
+    this.#replacingGrid = true
+    try {
+      this.#grid.replaceChildren(fragment)
+      if (restoreFocus && activeOrdinal !== null) this.#dayByOrdinal(activeOrdinal)?.focus({ preventScroll: true })
+    }
+    finally { this.#replacingGrid = false }
   }
 
   #renderDay(day: CalendarDay, formatter: Intl.DateTimeFormat): HTMLElement {
