@@ -485,10 +485,10 @@
   .sdp-calendar__week {
     width: 100%;
     min-width: max-content;
-    grid-template-columns: repeat(7, minmax(2rem, 1fr));
+    grid-template-columns: repeat(7, minmax(1.5rem, 1fr));
   }
   .sdp-calendar__grid.has-week-numbers .sdp-calendar__weekdays,
   .sdp-calendar__grid.has-week-numbers .sdp-calendar__week {
-    grid-template-columns: 1.5rem repeat(7, minmax(2rem, 1fr));
+    grid-template-columns: 1.5rem repeat(7, minmax(1.5rem, 1fr));
   }
 }
