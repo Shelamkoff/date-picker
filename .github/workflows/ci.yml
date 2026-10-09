@@ -87,3 +87,15 @@ jobs:
         run: |
           node tests/pointer-selection.browser.mjs
           node tests/calendar.browser.mjs
+
+      - name: Check responsive layout and capture screenshots
+        run: node tests/layout.browser.mjs
+
+      - name: Upload visual audit captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: responsive-layout-captures
+          path: layout-audit/
+          if-no-files-found: ignore
+          retention-days: 3
