@@ -341,6 +341,46 @@ try {
     document.querySelector('#rtl-keyboard-regression').remove()
   })
 
+
+  // Keyboard range selection must expose the same preview as pointer hover,
+  // and a committed range must mark interior grid cells aria-selected.
+  await page.evaluate(async () => {
+    const { CalendarDatePicker } = await import('./dist/index.js')
+    const host = document.createElement('div')
+    host.id = 'keyboard-range-preview'
+    host.style.width = '340px'
+    document.body.append(host)
+    window.__keyboardRange = new CalendarDatePicker(host, {
+      mode: 'range', inline: true, clearable: true,
+      now: () => new Date(2026, 9, 9, 12),
+      value: { start: new Date(2026, 9, 9, 12), end: null },
+    })
+  })
+  const keyRange = page.locator('#keyboard-range-preview')
+  await keyRange.locator('.sdp-calendar__day[aria-current="date"]').focus()
+  await page.keyboard.press('ArrowRight')
+  const focusedRangeDay = keyRange.locator('.sdp-calendar__day:focus')
+  assert.equal(await focusedRangeDay.textContent(), '10')
+  assert.equal(await focusedRangeDay.evaluate(node => node.classList.contains('is-preview')), true,
+    'keyboard focus should preview a valid pending range')
+  assert.equal(await focusedRangeDay.locator('xpath=..').getAttribute('aria-selected'), 'false',
+    'hover preview must not be announced as committed selection')
+  await page.keyboard.press('Tab')
+  assert.equal(await keyRange.locator('.sdp-calendar__day:not(.is-outside)').filter({ hasText: /^10$/ })
+    .evaluate(node => node.classList.contains('is-preview')), false,
+  'preview should clear after focus leaves the grid')
+  await page.evaluate(() => window.__keyboardRange.setValue({
+    start: new Date(2026, 9, 9, 12), end: new Date(2026, 9, 12, 12),
+  }))
+  const interiorCell = keyRange.locator('.sdp-calendar__day:not(.is-outside)').filter({ hasText: /^10$/ })
+    .locator('xpath=..')
+  assert.equal(await interiorCell.getAttribute('aria-selected'), 'true',
+    'interior days of a completed inclusive range must be announced as selected')
+  await page.evaluate(() => {
+    window.__keyboardRange.destroy()
+    document.querySelector('#keyboard-range-preview').remove()
+  })
+
   await page.evaluate(() => {
     window.__calendarRange.picker.destroy()
     window.__calendarMultiple.picker.destroy()

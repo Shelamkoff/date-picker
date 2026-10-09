@@ -210,6 +210,7 @@ export class CalendarDatePicker {
     this.#grid.addEventListener('pointerover', this.#onGridPointerOver)
     this.#grid.addEventListener('pointerleave', this.#onGridPointerLeave)
     this.#grid.addEventListener('focusin', this.#onGridFocusIn)
+    this.#grid.addEventListener('focusout', this.#onGridFocusOut)
     this.#popover.append(this.#grid)
 
     const footer = create('div', 'sdp-calendar__footer')
@@ -317,6 +318,7 @@ export class CalendarDatePicker {
     this.#grid.removeEventListener('pointerover', this.#onGridPointerOver)
     this.#grid.removeEventListener('pointerleave', this.#onGridPointerLeave)
     this.#grid.removeEventListener('focusin', this.#onGridFocusIn)
+    this.#grid.removeEventListener('focusout', this.#onGridFocusOut)
     this.element.remove()
   }
 
@@ -364,7 +366,7 @@ export class CalendarDatePicker {
     return button && this.#grid.contains(button) ? button : null
   }
   #onGridPointerOver = (event: PointerEvent): void => {
-    if (this.#destroyed || !this.#model.isRangePending) return
+    if (this.#destroyed || this.#view.disabled || this.#view.readOnly || !this.#model.isRangePending) return
     const button = this.#dayButton(event.target)
     if (!button || button.disabled) return
     const ordinal = Number(button.dataset.dayOrdinal)
@@ -395,7 +397,22 @@ export class CalendarDatePicker {
       for (const sibling of this.#grid.querySelectorAll<HTMLButtonElement>('[data-day-ordinal]')) {
         sibling.tabIndex = sibling === button ? 0 : -1
       }
+      if (!this.#view.readOnly && !this.#view.disabled && this.#model.isRangePending) {
+        this.#model.hover(civilOrdinalToDate(this.#focusedDay))
+        this.#refreshRangePreview()
+      }
     }
+  }
+  #onGridFocusOut = (): void => {
+    if (this.#replacingGrid || !this.#model.isRangePending) return
+    queueMicrotask(() => {
+      if (this.#destroyed || !this.#model.isRangePending) return
+      const root = this.#grid.getRootNode() as Document | ShadowRoot
+      const active = root.activeElement ?? this.#document.activeElement
+      if (active && this.#grid.contains(active)) return
+      this.#model.hover(null)
+      this.#refreshRangePreview()
+    })
   }
   #onGridKeydown = (event: KeyboardEvent): void => {
     const button = this.#dayButton(event.target)
@@ -607,7 +624,9 @@ export class CalendarDatePicker {
     const cell = this.#document.createElement('div')
     cell.className = 'sdp-calendar__cell'
     cell.setAttribute('role', 'gridcell')
-    cell.setAttribute('aria-selected', String(day.selected))
+    // An inclusive completed range selects its interior days as well as both
+    // endpoints. A hover preview is not committed selection.
+    cell.setAttribute('aria-selected', String(day.selected || (day.inRange && !day.preview)))
     if (day.outside && !this.#view.showOutsideDays) return cell
     const element = this.#document.createElement('button')
     element.type = 'button'
