@@ -266,9 +266,20 @@ export class CalendarDatePicker {
     if (this.#view.disabled || this.#view.inline || this.#open) return
     this.#open = true
     this.#focusedDay = null
-    this.#render()
-    this.#attachListeners()
-    this.#queuePosition()
+    try {
+      this.#render()
+      this.#attachListeners()
+      this.#queuePosition()
+    }
+    catch (error) {
+      // The first grid render invokes user-provided callbacks. A failure
+      // must never leave an open-looking dialog without working listeners.
+      this.#open = false
+      this.#detachListeners()
+      this.#popover.hidden = true
+      this.#trigger.setAttribute('aria-expanded', 'false')
+      throw error
+    }
     queueMicrotask(() => { if (!this.#destroyed && this.#open) this.#focusInitial() })
   }
   close(): void {

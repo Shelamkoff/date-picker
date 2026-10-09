@@ -239,3 +239,24 @@ test('a throwing disabledDate callback on an unselected month cannot partially a
   picker.update({ disabledDate: day => day.getDate() === 20 })
   assert.equal(picker.isSelectable(date(2026, 10, 20)), false)
 })
+
+test('navigation rolls back the visible month if disabledDate throws', () => {
+  const today = date(2026, 10, 9)
+  const controller = new CalendarSelectionController({
+    now: () => today,
+    disabledDate: candidate => {
+      if (candidate.getMonth() === 10) throw new Error('november predicate error')
+      return false
+    },
+  })
+  const events = []
+  controller.subscribe(event => events.push(event))
+  assert.equal(controller.month, 10)
+  assert.throws(() => controller.navigate(1), /november predicate error/)
+  assert.equal(controller.month, 10, 'failed navigation must restore previous month')
+  assert.equal(controller.getMonth().month, 10)
+  assert.deepEqual(events, [], 'failed navigation must not emit state change')
+  controller.update({ disabledDate: null })
+  assert.equal(controller.navigate(1), true)
+  assert.equal(controller.month, 11)
+})

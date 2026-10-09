@@ -431,6 +431,32 @@ try {
   })
   assert.deepEqual(transactionalPredicate, { rejected: true, canStillSelect: true })
 
+
+  // A callback which throws only when a popup grid is built must not leave
+  // isOpen/aria-expanded/popup visibility or listeners in an inconsistent state.
+  const failedOpenRecovery = await page.evaluate(async () => {
+    const { CalendarDatePicker } = await import('./dist/index.js')
+    const host = document.createElement('div')
+    document.body.append(host)
+    const widget = new CalendarDatePicker(host, {
+      now: () => new Date(2026, 9, 9, 12),
+      disabledDate() { throw new Error('render interrupted') },
+    })
+    let threw = false
+    try { widget.open() }
+    catch (error) { threw = error?.message === 'render interrupted' }
+    const safelyClosed = !widget.isOpen
+      && host.querySelector('.sdp-datepicker__popover').hidden
+      && host.querySelector('.sdp-datepicker__trigger').getAttribute('aria-expanded') === 'false'
+    widget.update({ disabledDate: null })
+    widget.open()
+    const recovered = widget.isOpen && !host.querySelector('.sdp-datepicker__popover').hidden
+    widget.destroy()
+    host.remove()
+    return { threw, safelyClosed, recovered }
+  })
+  assert.deepEqual(failedOpenRecovery, { threw: true, safelyClosed: true, recovered: true })
+
   await page.evaluate(() => {
     window.__calendarRange.picker.destroy()
     window.__calendarMultiple.picker.destroy()

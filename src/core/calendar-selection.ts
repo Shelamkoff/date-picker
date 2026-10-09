@@ -401,7 +401,19 @@ export class CalendarSelectionController {
   }
 
   setMonth(year: number, month: number): boolean {
+    const previousYear = this.#year
+    const previousMonth = this.#month
     if (!this.#setMonth(year, month)) return false
+    try {
+      // Catch callback failures before exposing the new visible month.
+      // Otherwise the model advances while the old DOM remains on screen.
+      this.getMonth()
+    }
+    catch (error) {
+      this.#year = previousYear
+      this.#month = previousMonth
+      throw error
+    }
     this.#emit({ type: 'state', reason: 'navigate' })
     return true
   }
