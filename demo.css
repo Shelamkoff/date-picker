@@ -17,3 +17,20 @@
 .calendar-examples .demo-panel { min-width: 0; box-shadow: none; padding: 20px; }
 .calendar-examples .value-row code { white-space: normal; overflow-wrap: anywhere; max-width: 100%; }
 @media(max-width:880px) { .calendar-live { grid-template-columns: 1fr; } .calendar-examples { grid-template-columns: 1fr; } }
+
+/* Prevent grid min-content widths (notably long code samples) from stretching mobile pages. */
+@media (max-width: 820px) {
+  .hero, .section-grid, .section-grid.reverse, .code-section {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .hero > *, .section-grid > *, .code-section > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .hero-actions { flex-wrap: wrap; }
+  .code-section pre, .demo-panel pre {
+    min-width: 0;
+    max-width: 100%;
+    overflow: auto;
+  }
+}
