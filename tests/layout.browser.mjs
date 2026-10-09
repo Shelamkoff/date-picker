@@ -60,6 +60,7 @@ try {
       const inline = await page.evaluate(() => {
         const view = document.querySelector('#cal-live .sdp-datepicker__calendar-popover')
         const first = document.querySelector('#cal-live .sdp-calendar__week')
+        const grid = view.querySelector('.sdp-calendar__grid')
         const rect = view.getBoundingClientRect()
         const days = [...document.querySelectorAll('#cal-live .sdp-calendar__day')]
         const widths = days.map(x => x.getBoundingClientRect().width)
@@ -68,9 +69,13 @@ try {
           clientWidth: view.clientWidth, scrollWidth: view.scrollWidth,
           dayMin: Math.min(...widths), dayMax: Math.max(...widths),
           gridWidth: first?.getBoundingClientRect().width,
+          gridScrollWidth: grid.scrollWidth, gridClientWidth: grid.clientWidth,
         }
       })
       if (inline.scrollWidth > inline.clientWidth + 2) failures.push(`Inline calendar overflow at ${width}/${theme}: ${inline.scrollWidth}/${inline.clientWidth}`)
+      if (width <= 375 && inline.gridScrollWidth > inline.gridClientWidth + 2) {
+        failures.push(`Inline seven-day grid requires scrolling at normal text size ${width}/${theme}: ${inline.gridScrollWidth}/${inline.gridClientWidth}`)
+      }
       if (inline.right > width + 2) failures.push(`Inline calendar outside viewport at ${width}/${theme}: ${inline.right}`)
       if (inline.dayMin < 22) failures.push(`Calendar day too small at ${width}/${theme}: ${inline.dayMin.toFixed(1)}px`)
       await page.screenshot({ path: `${output}/${width}-${theme}-inline-weeknumbers.png` })
