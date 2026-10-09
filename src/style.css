@@ -296,6 +296,7 @@
 .sdp-datepicker--inline .sdp-datepicker__calendar-popover {
   position: static;
   width: 100%;
+  min-width: 0;
   max-width: 25rem;
   max-height: none;
   overflow: visible;
