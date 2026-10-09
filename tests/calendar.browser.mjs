@@ -208,6 +208,39 @@ try {
     footerHiddenWhenEmpty: true,
   }, 'today and footer states must reflect available actions')
 
+  const localeLabels = await page.evaluate(async () => {
+    const { CalendarDatePicker } = await import('./dist/index.js')
+    const us = document.createElement('div')
+    const ar = document.createElement('div')
+    document.body.append(us, ar)
+    const jan = new Date(2026, 0, 8, 12)
+    const usPicker = new CalendarDatePicker(us, {
+      inline: true, locale: 'en-US', showWeekNumbers: true, now: () => jan,
+    })
+    const arPicker = new CalendarDatePicker(ar, {
+      inline: true, locale: 'ar-EG', showWeekNumbers: true, now: () => jan,
+    })
+    const januaryFifth = [...us.querySelectorAll('.sdp-calendar__week')]
+      .find(row => [...row.querySelectorAll('.sdp-calendar__day:not(.is-outside)')]
+        .some(day => day.textContent === '5'))
+    const isoWeek = januaryFifth?.querySelector('.sdp-calendar__week-number')?.textContent ?? null
+    const isoWeekLabel = januaryFifth?.querySelector('.sdp-calendar__week-number')?.getAttribute('aria-label') ?? null
+    const arabicCompacts = [...ar.querySelectorAll('[role="columnheader"]')]
+      .map(item => item.dataset.compact)
+    usPicker.destroy()
+    arPicker.destroy()
+    us.remove()
+    ar.remove()
+    return {
+      isoWeek, isoWeekLabel,
+      distinctArabic: new Set(arabicCompacts).size,
+      countArabic: arabicCompacts.length,
+    }
+  })
+  assert.deepEqual(localeLabels, {
+    isoWeek: '2', isoWeekLabel: 'ISO week 2', distinctArabic: 7, countArabic: 7,
+  }, 'ISO week labels and compact localized weekday labels remain meaningful')
+
   await page.evaluate(() => {
     window.__calendarRange.picker.destroy()
     window.__calendarMultiple.picker.destroy()

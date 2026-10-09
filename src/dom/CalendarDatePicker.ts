@@ -514,15 +514,23 @@ export class CalendarDatePicker {
       weekdays.append(corner)
     }
     const weekdayFormatter = new Intl.DateTimeFormat(this.#view.locale, { weekday: 'short', timeZone: 'UTC' })
+    const narrowFormatter = new Intl.DateTimeFormat(this.#view.locale, { weekday: 'narrow', timeZone: 'UTC' })
+    // Short labels may share a common prefix (e.g. every Arabic weekday
+    // begins with "ال"). Use the most distinguishable localized short form.
+    const weekdayDates = Array.from({ length: 7 }, (_, index) =>
+      new Date(Date.UTC(2023, 0, (month.weekStartsOn + index) % 7 + 1)))
+    const fullLabels = weekdayDates.map(date => weekdayFormatter.format(date))
+    const twoLetterLabels = fullLabels.map(label => Array.from(label).slice(0, 2).join(''))
+    const narrowLabels = weekdayDates.map(date => narrowFormatter.format(date))
+    const compactLabels = new Set(narrowLabels).size > new Set(twoLetterLabels).size
+      ? narrowLabels : twoLetterLabels
     for (let index = 0; index < 7; index += 1) {
-      const day = (month.weekStartsOn + index) % 7
-      const date = new Date(Date.UTC(2023, 0, day + 1))
       const header = this.#document.createElement('span')
       header.className = 'sdp-calendar__weekday'
       header.setAttribute('role', 'columnheader')
-      const fullLabel = weekdayFormatter.format(date)
+      const fullLabel = fullLabels[index] ?? ''
       header.textContent = fullLabel
-      header.dataset.compact = Array.from(fullLabel).slice(0, 2).join('')
+      header.dataset.compact = compactLabels[index] ?? fullLabel
       header.setAttribute('aria-label', fullLabel)
       weekdays.append(header)
     }
@@ -539,9 +547,16 @@ export class CalendarDatePicker {
       if (this.#view.showWeekNumbers) {
         const cell = this.#document.createElement('span')
         cell.className = 'sdp-calendar__week-number'
-        cell.setAttribute('aria-label', 'ISO week')
+        cell.setAttribute('role', 'rowheader')
         const firstDay = month.days[rowIndex]
-        cell.textContent = firstDay ? String(isoWeekNumber(civilDayNumber(firstDay.year, firstDay.month, firstDay.day))) : ''
+        // A Sunday-start row contains days from two ISO weeks. Label the
+        // week containing Thursday, matching conventional ISO week displays.
+        const startOrdinal = firstDay ? civilDayNumber(firstDay.year, firstDay.month, firstDay.day) : null
+        const thursday = startOrdinal === null ? null
+          : startOrdinal + ((4 - civilWeekday(startOrdinal) + 7) % 7)
+        const weekNumber = thursday === null ? '' : String(isoWeekNumber(thursday))
+        cell.textContent = weekNumber
+        cell.setAttribute('aria-label', `ISO week ${weekNumber}`)
         row.append(cell)
       }
       for (const day of month.days.slice(rowIndex, rowIndex + 7)) {
