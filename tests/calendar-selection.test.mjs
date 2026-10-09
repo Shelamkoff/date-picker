@@ -152,3 +152,16 @@ test('configuration errors from disabledDate propagate without losing current se
   picker.update({ disabledDate: () => true })
   assert.equal(picker.value, null, 'genuinely excluded values are cleared on options change')
 })
+
+test('latest representable ECMAScript instant remains selectable as a civil day', () => {
+  if (process.env.TZ !== 'UTC') return
+  const maximum = new Date(8_640_000_000_000_000)
+  const picker = new CalendarSelectionController({
+    minDate: maximum, maxDate: maximum, now: () => maximum,
+  })
+  assert.equal(picker.isSelectable(maximum), true)
+  assert.equal(picker.select(maximum), true)
+  assert.equal(picker.value.getTime(), maximum.getTime())
+  const available = picker.getMonth().days.find(value => value.year === 275760 && value.month === 9 && value.day === 13)
+  assert.equal(available?.disabled, false)
+})

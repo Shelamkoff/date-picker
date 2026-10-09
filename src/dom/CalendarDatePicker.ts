@@ -12,7 +12,7 @@ import {
   type CalendarMonth,
   type CalendarDay,
 } from '../core/calendar-selection.js'
-import { isValidDate } from '../core/calendar.js'
+import { dayInterval, isValidDate } from '../core/calendar.js'
 import { createMonthFormatter, formatDatePickerValue } from '../core/format.js'
 import { resolvePopoverVerticalPlacement } from './PopoverPlacement.js'
 
@@ -665,10 +665,10 @@ function daysInMonthSafe(year: number, month: number): number {
 
 function civilOrdinalToDate(ordinal: number): Date | null {
   const { year, month, day } = civilDayParts(ordinal)
-  const date = new Date(0)
-  date.setHours(12, 0, 0, 0)
-  date.setFullYear(year, month - 1, day)
-  return isValidDate(date) && date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day ? date : null
+  // Match the core's day-existence semantics: an extreme Date or a local day
+  // with a noon transition may exist even when its 12:00 wall-clock does not.
+  const interval = dayInterval(year, month, day, false)
+  return interval ? interval[0] : null
 }
 function isoWeekNumber(ordinal: number): number {
   const weekday = (civilWeekday(ordinal) + 6) % 7

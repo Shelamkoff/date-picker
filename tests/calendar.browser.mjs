@@ -3,7 +3,7 @@ import { chromium } from '@playwright/test'
 
 const browser = await chromium.launch()
 try {
-  const page = await browser.newPage({ viewport: { width: 1200, height: 900 } })
+  const page = await browser.newPage({ viewport: { width: 1200, height: 900 }, timezoneId: 'UTC' })
   const errors = []
   page.on('pageerror', error => errors.push(error.message))
   await page.goto(process.env.AUDIT_URL ?? 'http://127.0.0.1:4173/index.html', { waitUntil: 'networkidle' })
@@ -136,6 +136,30 @@ try {
   // A click in another widget closes an open popover, but does not change its value.
   assert.equal(await page.locator('#cal-multiple-regression .sdp-datepicker__popover').isVisible(), false)
   assert.deepEqual(await page.evaluate(() => window.__calendarMultiple.picker.value.map(date => date.getDate())), [9])
+
+  // The upper ECMAScript Date boundary has an existing midnight but no
+  // representable noon. A selectable day must also be clickable in the DOM.
+  const edge = await page.evaluate(async () => {
+    const { CalendarDatePicker } = await import('./dist/index.js')
+    const host = document.createElement('div')
+    host.style.width = '340px'
+    document.body.append(host)
+    const maximum = new Date(8_640_000_000_000_000)
+    const widget = new CalendarDatePicker(host, {
+      inline: true, now: () => maximum, minDate: maximum, maxDate: maximum,
+    })
+    const available = [...host.querySelectorAll('.sdp-calendar__day')]
+      .find(day => day.textContent === '13' && !day.classList.contains('is-outside'))
+    const visible = !!available
+    const enabled = visible && !available.disabled
+    available?.click()
+    const selected = widget.value instanceof Date ? widget.value.getTime() : null
+    widget.destroy()
+    host.remove()
+    return { visible, enabled, selected }
+  })
+  assert.deepEqual(edge, { visible: true, enabled: true, selected: 8_640_000_000_000_000 },
+    'last representable civil day must be selectable in calendar DOM')
 
   await page.evaluate(() => {
     window.__calendarRange.picker.destroy()
