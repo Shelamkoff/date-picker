@@ -50,30 +50,11 @@ try {
   const day = (host, date) => page.locator('#' + host + ' .sdp-calendar__day:not(.is-outside)')
     .filter({ hasText: new RegExp('^' + date + '$') })
   const rangePopover = page.locator('#cal-range-regression .sdp-datepicker__popover')
-  console.log('calendar-before-range-selection', await page.evaluate(() => {
-    const root = document.getElementById('cal-range-regression')
-    return { open: window.__calendarRange.picker.isOpen, hidden: root.querySelector('.sdp-datepicker__popover').hidden,
-      active: document.activeElement?.className ?? '' }
-  }))
-  await page.evaluate(() => {
-    const root = document.getElementById('cal-range-regression')
-    window.__calEvents = []
-    for (const type of ['focusout','focusin','pointerdown','pointerup','click']) {
-      root.addEventListener(type, event => window.__calEvents.push({
-        type, target: event.target?.className ?? '', related: event.relatedTarget?.className ?? '',
-        active: document.activeElement?.className ?? ''
-      }), true)
-    }
-  })
   await day('cal-range-regression', 12).click()
-  console.log('calendar-events-first-selection', await page.evaluate(() => window.__calEvents))
-  console.log('calendar-range-first-selection', await page.evaluate(() => {
-    const root = document.getElementById('cal-range-regression')
-    const picker = window.__calendarRange.picker
-    return { open: picker.isOpen, hidden: root.querySelector('.sdp-datepicker__popover').hidden,
-      start: picker.value.start?.getDate() ?? null, end: picker.value.end?.getDate() ?? null,
-      active: document.activeElement?.tagName }
-  }))
+  assert.deepEqual(await page.evaluate(() => {
+    const value = window.__calendarRange.picker.value
+    return { start: value.start?.getDate() ?? null, end: value.end?.getDate() ?? null }
+  }), { start: 12, end: null }, 'first range click commits a partial range')
   assert.equal(await rangePopover.isVisible(), true, 'start of range must keep the calendar open')
   await day('cal-range-regression', 18).hover()
   assert.equal(await day('cal-range-regression', 15).evaluate(element => element.classList.contains('is-preview')), true, 'hover previews the range')
@@ -107,6 +88,10 @@ try {
   await day('cal-inline-regression', 12).click()
   assert.equal(await page.evaluate(() => window.__calendarInline.value.getDate()), 12)
   assert.equal(await page.locator('#cal-inline-regression .sdp-datepicker__popover').isVisible(), true)
+
+  // A click in another widget closes an open popover, but does not change its value.
+  assert.equal(await page.locator('#cal-multiple-regression .sdp-datepicker__popover').isVisible(), false)
+  assert.deepEqual(await page.evaluate(() => window.__calendarMultiple.picker.value.map(date => date.getDate())), [9])
 
   await page.evaluate(() => {
     window.__calendarRange.picker.destroy()
