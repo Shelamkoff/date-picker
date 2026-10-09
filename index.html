@@ -109,17 +109,47 @@ const controller = createDatePicker({
 controller.open()
 console.log(controller.snapshot.columns)</code></pre>
       </section>
+
+      <section class="section-grid" id="calendar-modes" style="display:block">
+        <div class="section-copy"><p class="eyebrow">Calendar modes</p><h2>Single date, date range, or multiple days.</h2><p>Choose from an accessible month grid. Try blocked weekends, inclusive date ranges and multi-date toggling.</p></div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:18px;margin-top:25px">
+          <div class="demo-panel"><p class="hero-card-label">Single date</p><div id="calendar-single"></div><div class="value-row"><span>Value</span><code id="calendar-single-value">null</code></div></div>
+          <div class="demo-panel"><p class="hero-card-label">Date range</p><div id="calendar-range"></div><div class="value-row"><span>Value</span><code id="calendar-range-value">null</code></div></div>
+          <div class="demo-panel"><p class="hero-card-label">Multiple dates</p><div id="calendar-multiple"></div><div class="value-row"><span>Value</span><code id="calendar-multiple-value">[]</code></div></div>
+        </div>
+      </section>
     </main>
 
     <footer><span>MIT licensed</span><a href="https://github.com/Shelamkoff/date-picker">Source on GitHub</a></footer>
   </div>
 
   <script type="module">
-    import { DatePicker } from './dist/index.js'
+    import { DatePicker, CalendarDatePicker } from './dist/index.js'
 
     const byId = id => document.getElementById(id)
+
     let globalLight = false
     const pickerHosts = []
+    const calendarValueText = value => {
+      if (value instanceof Date) return value.toLocaleDateString();
+      if (Array.isArray(value)) return value.map(calendarValueText).join(', ') || '[]';
+      if (value && typeof value === 'object') return (value.start ? calendarValueText(value.start) : '—') + ' → ' + (value.end ? calendarValueText(value.end) : '…');
+      return 'null';
+    };
+    for (const mode of ['single', 'range', 'multiple']) {
+      const host = byId('calendar-' + mode);
+      pickerHosts.push(host);
+      const output = byId('calendar-' + mode + '-value');
+      new CalendarDatePicker(host, {
+        mode, locale: 'en-GB', clearable: true, showToday: true, closeOnSelect: mode === 'single',
+        maxSelections: mode === 'multiple' ? 7 : null,
+        minRangeDays: 1,
+        disabledDate: mode === 'range' ? date => date.getDay() === 0 : null,
+        onChange(value) { output.textContent = calendarValueText(value) },
+      });
+    }
+
+
     const formatOutput = value => value ? `${value.toLocaleString()} · ${value.toISOString()}` : 'null'
     const formatDate = value => value.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
     const syncHostTheme = () => { for (const host of pickerHosts) host.classList.toggle('sdp-theme-light', globalLight) }

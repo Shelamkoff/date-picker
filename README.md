@@ -207,3 +207,45 @@ The tests cover value normalization, bounds, minute-step boundary values, month-
 ## License
 
 MIT
+
+## Calendar view: single, range and multiple selection
+
+The existing `DatePicker` wheel widget and `createDatePicker()` headless wheel controller are unchanged. Use `CalendarDatePicker` for a month-grid calendar, or `createDatePickerWidget()` to select the view at construction time.
+
+```ts
+import { CalendarDatePicker, createDatePickerWidget } from '@shelamkoff/date-picker'
+import '@shelamkoff/date-picker/style.css'
+
+// One day. Default calendar picker mode.
+const single = new CalendarDatePicker(document.querySelector('#single')!, {
+  mode: 'single', locale: 'en-GB', clearable: true,
+  onChange(value, reason) { console.log(value, reason) },
+})
+
+// Inclusive range. Two clicks select start and end; a third restarts.
+const range = createDatePickerWidget(document.querySelector('#range')!, {
+  view: 'calendar',
+  mode: 'range',
+  minRangeDays: 2,
+  maxRangeDays: 30,
+  disabledDate: day => day.getDay() === 0,
+  onChange(value) { console.log(value) }, // { start: Date|null, end: Date|null }
+})
+
+// Multi-date toggles, no duplicates, sorted ascending.
+const multiple = new CalendarDatePicker(document.querySelector('#multiple')!, {
+  mode: 'multiple', maxSelections: 7, clearable: true,
+  closeOnSelect: false,
+})
+
+// Always-visible month grid (no trigger/popover).
+const inline = new CalendarDatePicker(document.querySelector('#inline')!, {
+  mode: 'range', inline: true, showWeekNumbers: true,
+})
+```
+
+Calendar options: `mode` (`single`, `range`, `multiple`), inclusive `minDate`/`maxDate`, `disabledDate(date)`, `minRangeDays`/`maxRangeDays`, `maxSelections`, `weekStartsOn` (0=Sunday), `fixedWeeks` (always 6 rows), `inline`, `showOutsideDays`, `showWeekNumbers`, `locale`, `readOnly`, `disabled`, `clearable`, `showToday`, `closeOnSelect`, `formatValue`, `onChange`, and optional accessible button labels. The month header has previous/next buttons. Keyboard: arrow keys, Home/End, Page Up/Down (Shift for years), Enter/Space to select and Escape to close a popover. Range selection previews the interval on pointer hover. A selected value is cloned before being returned; boundaries are local calendar dates (not UTC timestamps), so date comparisons survive DST transitions.
+
+`CalendarDatePicker.value` and `setValue()` use `Date | null` in single mode, `{start: Date|null, end: Date|null}` in range mode and `readonly Date[]` in multiple mode. The first range click emits a partial range; the second emits the completed range. `update()`, `open()`, `close()`, `toggle()`, `clear()`, `selectToday()`, `navigate(months)`, `focus()`, and `destroy()` are available. The bubbling `date-picker-change` event includes `detail.value`, `detail.reason` and `detail.mode`; `onChange` runs only on a value change. Programmatic `setValue()` does not emit user-change events.
+
+The independent, DOM-free `CalendarSelectionController` is exported from `@shelamkoff/date-picker/core`. It supports the same selection, bounds, range checks and month calculation, with `subscribe()` and defensive snapshots. All modes share calendar civil-date arithmetic; the original wheel controller remains responsible for local times and minute precision.
