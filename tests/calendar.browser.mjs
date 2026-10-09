@@ -45,6 +45,18 @@ try {
       now: () => new Date(2026, 9, 9, 12),
     })
     window.__calendarInline = inlinePicker
+    // Regional first-day-of-week follows Intl.Locale on both old and new APIs.
+    const us = document.createElement('div')
+    document.body.append(us)
+    const usPicker = new CalendarDatePicker(us, {
+      locale: 'en-US', inline: true, now: () => new Date(2026, 9, 9, 12),
+    })
+    const gb = document.createElement('div')
+    document.body.append(gb)
+    const gbPicker = new CalendarDatePicker(gb, {
+      locale: 'en-GB', inline: true, now: () => new Date(2026, 9, 9, 12),
+    })
+    window.__calendarLocales = { usPicker, gbPicker }
   })
 
   const day = (host, date) => page.locator('#' + host + ' .sdp-calendar__day:not(.is-outside)')
@@ -83,6 +95,10 @@ try {
   await day('cal-multiple-regression', 11).click()
   assert.deepEqual(await page.evaluate(() => window.__calendarMultiple.changes), [[11], [9, 11], [9]])
 
+  assert.deepEqual(await page.evaluate(() => ({
+    us: window.__calendarLocales.usPicker.snapshot.weekStartsOn,
+    gb: window.__calendarLocales.gbPicker.snapshot.weekStartsOn,
+  })), { us: 0, gb: 1 }, 'week starts on Sunday in the US and Monday in Great Britain')
   assert.equal(await day('cal-inline-regression', 11).isDisabled(), true, 'disabledDate is reflected in DOM')
   assert.equal(await page.locator('#cal-inline-regression .sdp-calendar__week-number').count() > 0, true)
   await day('cal-inline-regression', 12).click()
@@ -97,6 +113,8 @@ try {
     window.__calendarRange.picker.destroy()
     window.__calendarMultiple.picker.destroy()
     window.__calendarInline.destroy()
+    window.__calendarLocales.usPicker.destroy()
+    window.__calendarLocales.gbPicker.destroy()
   })
   assert.deepEqual(errors, [], 'browser console must contain no uncaught errors')
   console.log('Calendar browser regressions passed')

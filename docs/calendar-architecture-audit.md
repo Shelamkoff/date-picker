@@ -27,3 +27,7 @@ Reviewed `src/core/calendar.ts`, `controller.ts`, `types.ts`, `format.ts`, the p
 - Recheck wheel behavior under existing Node/timezone and Chromium CI; new calendar DOM should receive dedicated browser interaction and screen-reader audits in Chromium, Firefox and WebKit, especially keyboard roving tabindex, shadow-root focus and pointer/range preview.
 - Browser interactions, popup positioning under clipping/portals, RTL, locale-specific week numbering, focus restoration, form-associated semantics and native direct-text entry still need broader acceptance tests; they are not fully guaranteed by headless unit tests. Current calendar does not provide free-text date parsing, week selection, preset ranges, selectable timezone or multi-month panels.
 - Maintain the simple `@shelamkoff/date-picker` namespace and design tokens. Prefer further small, tested extraction of popover/focus primitives over an untested rewrite of the wheel mode.
+
+### Browser locale compatibility (confirmed and fixed)
+
+The initial implementation used only `Intl.Locale.prototype.weekInfo`; Chromium 136+ (and other modern engines) instead expose `getWeekInfo()`, so `en-US` calendars silently defaulted to Monday. The calendar now checks `getWeekInfo()` first and uses the older property on runtimes that still implement it. Browser tests explicitly verify `en-US` = Sunday and `en-GB` = Monday. Background: MDN's `Intl.Locale.getWeekInfo()` compatibility note.

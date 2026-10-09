@@ -86,9 +86,14 @@ function resolveView(options: CalendarDatePickerOptions, previous?: ViewOptions)
 }
 
 function localeWeekStartsOn(locale: string): number {
-  const weekInfo = (new Intl.Locale(locale) as Intl.Locale & { weekInfo?: { firstDay?: number } }).weekInfo
-  const day = weekInfo?.firstDay
-  return typeof day === 'number' && day >= 1 && day <= 7 ? day % 7 : 1
+  // getWeekInfo() supersedes the legacy weekInfo accessor. Support both because
+  // the library still targets browsers and Node runtimes using the old form.
+  const info = new Intl.Locale(locale) as Intl.Locale & {
+    getWeekInfo?: () => { readonly firstDay?: number }
+    readonly weekInfo?: { readonly firstDay?: number }
+  }
+  const firstDay = (typeof info.getWeekInfo === 'function' ? info.getWeekInfo() : info.weekInfo)?.firstDay
+  return typeof firstDay === 'number' && firstDay >= 1 && firstDay <= 7 ? firstDay % 7 : 1
 }
 
 function formatDisplay(value: CalendarSelectionValue, mode: CalendarSelectionMode, locale: string): string {
