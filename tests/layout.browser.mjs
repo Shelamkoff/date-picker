@@ -16,7 +16,11 @@ try {
     await page.setViewportSize({ width, height: width <= 375 ? 640 : 850 })
     await page.goto(process.env.AUDIT_URL ?? 'http://127.0.0.1:4173/index.html', { waitUntil: 'networkidle' })
     for (const theme of ['dark', 'light']) {
-      if (theme === 'light') await page.locator('#theme-toggle').click()
+      if (theme === 'light') {
+        const toggle = page.locator('#theme-toggle')
+        if (!(await toggle.isVisible())) failures.push(`Theme toggle hidden at ${width}`)
+        else await toggle.click()
+      }
       await page.locator('#calendar-modes').scrollIntoViewIfNeeded()
       await page.screenshot({ path: `${output}/${width}-${theme}-calendar.png` })
       const base = await page.evaluate(() => {
@@ -85,10 +89,27 @@ try {
       const wheel = await page.evaluate(() => {
         const node = document.querySelector('#playground-picker .sdp-datepicker__popover')
         const rect = node.getBoundingClientRect()
+        const scroller = node.querySelector('.sdp-datepicker__wheels')
+        const scrollerRect = scroller.getBoundingClientRect()
+        const columns = [...node.querySelectorAll('.sdp-datepicker__columns > .sdp-wheel')]
+          .filter(column => getComputedStyle(column).display !== 'none')
+          .map(column => {
+            const b = column.getBoundingClientRect()
+            return { name: column.getAttribute('aria-label'), left: b.left, right: b.right, width: b.width }
+          })
         return { x: rect.left, y: rect.top, right: rect.right, bottom: rect.bottom,
-          width: rect.width, scrollWidth: node.scrollWidth, clientWidth: node.clientWidth }
+          width: rect.width, scrollWidth: node.scrollWidth, clientWidth: node.clientWidth,
+          scrollerLeft: scrollerRect.left, scrollerRight: scrollerRect.right,
+          scrollerWidth: scroller.scrollWidth, scrollerClientWidth: scroller.clientWidth,
+          columns }
       })
       if (wheel.x < -2 || wheel.right > width + 2) failures.push(`Wheel popover clipping at ${width}/${theme}: ${JSON.stringify(wheel)}`)
+      if (width <= 375 && wheel.scrollerWidth > wheel.scrollerClientWidth + 2) {
+        failures.push(`Wheel columns require horizontal scrolling at ${width}/${theme}: ${JSON.stringify(wheel)}`)
+      }
+      if (width <= 375 && wheel.columns.some(column => column.left < wheel.scrollerLeft - 2 || column.right > wheel.scrollerRight + 2)) {
+        failures.push(`Wheel column obscured at ${width}/${theme}: ${JSON.stringify(wheel)}`)
+      }
       await page.screenshot({ path: `${output}/${width}-${theme}-wheel.png` })
       metrics.push({ width, theme, ...base, inline, popup, wheel })
     }
