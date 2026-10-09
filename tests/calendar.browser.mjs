@@ -161,6 +161,28 @@ try {
   assert.deepEqual(edge, { visible: true, enabled: true, selected: 8_640_000_000_000_000 },
     'last representable civil day must be selectable in calendar DOM')
 
+  // Invalid explicit values in a combined widget update must not leave
+  // the controller using half-applied min/max bounds.
+  const transaction = await page.evaluate(async () => {
+    const { CalendarDatePicker } = await import('./dist/index.js')
+    const host = document.createElement('div')
+    document.body.append(host)
+    const current = new Date(2026, 9, 10)
+    const picker = new CalendarDatePicker(host, { inline: true, value: current })
+    let failed = false
+    try {
+      picker.update({ minDate: new Date(2026, 9, 15), value: current })
+    }
+    catch (error) { failed = error instanceof RangeError }
+    const unchanged = picker.value instanceof Date && picker.value.getDate() === 10
+    picker.update({ minDate: new Date(2026, 9, 15), value: new Date(2026, 9, 16) })
+    const committed = picker.value instanceof Date && picker.value.getDate() === 16
+    picker.destroy()
+    host.remove()
+    return { failed, unchanged, committed }
+  })
+  assert.deepEqual(transaction, { failed: true, unchanged: true, committed: true })
+
   await page.evaluate(() => {
     window.__calendarRange.picker.destroy()
     window.__calendarMultiple.picker.destroy()

@@ -243,11 +243,13 @@ export class CalendarDatePicker {
       ...(options.locale !== undefined && options.weekStartsOn === undefined && !this.#explicitWeekStart
         ? { weekStartsOn: localeWeekStartsOn(nextView.locale) } : {}),
     }
-    this.#model.update(selectionOptions)
-    if (options.weekStartsOn !== undefined) this.#explicitWeekStart = true
     if (Object.prototype.hasOwnProperty.call(options, 'value') && options.value !== undefined) {
-      this.#model.setValue(options.value)
+      this.#model.update(selectionOptions, { value: options.value })
     }
+    else {
+      this.#model.update(selectionOptions)
+    }
+    if (options.weekStartsOn !== undefined) this.#explicitWeekStart = true
     this.#view = nextView
     if (nextView.disabled && this.#open) this.close()
     this.#render()

@@ -165,3 +165,19 @@ test('latest representable ECMAScript instant remains selectable as a civil day'
   const available = picker.getMonth().days.find(value => value.year === 275760 && value.month === 9 && value.day === 13)
   assert.equal(available?.disabled, false)
 })
+
+test('combined options and explicit value updates are atomic', () => {
+  const current = date(2026, 10, 10)
+  const minimum = date(2026, 10, 15)
+  const picker = new CalendarSelectionController({ now: () => current }, current)
+  const events = []
+  picker.subscribe(event => events.push(event))
+  assert.throws(() => picker.update({ minDate: minimum }, { value: current }), /disabled or out-of-bounds/)
+  assert.deepEqual(day(picker.value), [2026, 10, 10], 'rejected value must not clear current selection')
+  assert.equal(picker.isSelectable(current), true, 'rejected options must not leak')
+  assert.deepEqual(events, [], 'failed transaction must not emit events')
+  picker.update({ minDate: minimum }, { value: date(2026, 10, 16) })
+  assert.deepEqual(day(picker.value), [2026, 10, 16])
+  assert.equal(picker.isSelectable(current), false)
+  assert.equal(picker.month, 10)
+})

@@ -305,22 +305,42 @@ export class CalendarSelectionController {
     this.#emit({ type: 'state', reason: 'external' })
   }
 
-  update(options: CalendarSelectionOptions): void {
+  update(
+    options: CalendarSelectionOptions,
+    state?: { readonly value: CalendarSelectionValue },
+  ): void {
     if (options.mode !== undefined && options.mode !== this.mode) throw new RangeError('Cannot change selection mode of an existing picker')
     const resolved = resolveOptions(options, this.#options)
     const previousOptions = this.#options
     this.#options = resolved
     let next: CalendarSelectionValue
-    try { next = this.#normalizeValue(this.#value) }
-    catch (error) {
-      if (!(error instanceof UnavailableSelectionError)) {
-        this.#options = previousOptions
-        throw error
+    try {
+      if (state !== undefined) {
+        // Validate the explicitly supplied value against the proposed options
+        // before committing either. A rejected combined update is atomic.
+        next = this.#normalizeValue(state.value)
       }
-      next = emptyValue(this.mode)
+      else {
+        try { next = this.#normalizeValue(this.#value) }
+        catch (error) {
+          if (!(error instanceof UnavailableSelectionError)) throw error
+          next = emptyValue(this.mode)
+        }
+      }
+    }
+    catch (error) {
+      this.#options = previousOptions
+      throw error
     }
     this.#value = next
     this.#hoverDay = null
+    if (state !== undefined) {
+      const selected = this.#firstValue()
+      if (selected) {
+        this.#year = selected.getFullYear()
+        this.#month = selected.getMonth() + 1
+      }
+    }
     this.#clampViewToBounds()
     this.#setMonth(this.#year, this.#month)
     this.#emit({ type: 'state', reason: 'options' })
