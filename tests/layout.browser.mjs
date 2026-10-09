@@ -193,19 +193,27 @@ try {
     const title = header.querySelector('.sdp-calendar__title')
     const grid = picker.querySelector('.sdp-calendar__grid')
     const box = picker.getBoundingClientRect()
+    const dayWidths = [...grid.querySelectorAll('.sdp-calendar__day')]
+      .map(day => day.getBoundingClientRect().width)
+    const hasScrollableWeeks = grid.scrollWidth > grid.clientWidth + 2
+    grid.scrollLeft = 10000
+    const scrollWorks = !hasScrollableWeeks || grid.scrollLeft !== 0
+    grid.scrollLeft = 0
     return {
       docWidth: document.documentElement.scrollWidth,
       viewportWidth: innerWidth,
       pickerRight: box.right, pickerWidth: box.width,
       titleClientWidth: title.clientWidth, titleScrollWidth: title.scrollWidth,
       gridClientWidth: grid.clientWidth, gridScrollWidth: grid.scrollWidth,
+      minDayWidth: Math.min(...dayWidths), scrollWorks,
     }
   })
   await page.screenshot({ path: `${output}/320-200pct-text-zoom-inline.png` })
   if (enlarged.docWidth > enlarged.viewportWidth + 1
     || enlarged.pickerRight > enlarged.viewportWidth + 2
     || enlarged.titleScrollWidth > enlarged.titleClientWidth + 2
-    || enlarged.gridScrollWidth > enlarged.gridClientWidth + 2) {
+    || !enlarged.scrollWorks
+    || enlarged.minDayWidth < 40) {
     failures.push(`200% text zoom overflow: ${JSON.stringify(enlarged)}`)
   }
   metrics.push({ textZoom: enlarged })

@@ -466,3 +466,25 @@
     font-size: 0.75rem;
   }
 }
+
+/* At 200% text sizing a seven-day grid cannot fit readable day numbers in a
+   320px viewport. Contain scrolling in the grid instead of letting weekday
+   labels or two-digit dates overlap or widen the whole document. */
+@media (max-width: 480px) {
+  .sdp-calendar__grid {
+    max-width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+  }
+  .sdp-calendar__weekdays,
+  .sdp-calendar__week {
+    width: 100%;
+    min-width: max-content;
+    grid-template-columns: repeat(7, minmax(2rem, 1fr));
+  }
+  .sdp-calendar__grid.has-week-numbers .sdp-calendar__weekdays,
+  .sdp-calendar__grid.has-week-numbers .sdp-calendar__week {
+    grid-template-columns: 1.5rem repeat(7, minmax(2rem, 1fr));
+  }
+}
