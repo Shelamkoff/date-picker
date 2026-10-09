@@ -83,16 +83,20 @@ try {
         const node = document.querySelector('#cal-live .sdp-datepicker__popover')
         const rect = node.getBoundingClientRect()
         const grid = node.querySelector('.sdp-calendar__grid').getBoundingClientRect()
+        const footer = node.querySelector('.sdp-calendar__footer').getBoundingClientRect()
         return {
           x: rect.left, y: rect.top, right: rect.right, bottom: rect.bottom,
           width: rect.width, height: rect.height, viewWidth: innerWidth, viewHeight: innerHeight,
           contentWidth: node.scrollWidth, viewportContentWidth: node.clientWidth,
-          gridWidth: grid.width,
+          gridWidth: grid.width, footerTop: footer.top, footerBottom: footer.bottom,
         }
       })
       if (popup.x < -2 || popup.right > width + 2) failures.push(`Popover horizontal clipping at ${width}/${theme}: ${JSON.stringify(popup)}`)
       if (popup.y < -2 || popup.bottom > (width <= 375 ? 640 : 850) + 2) failures.push(`Popover vertical clipping at ${width}/${theme}: ${JSON.stringify(popup)}`)
       if (popup.contentWidth > popup.viewportContentWidth + 2) failures.push(`Popover inner overflow at ${width}/${theme}`)
+      if (popup.footerTop < popup.y - 2 || popup.footerBottom > popup.bottom + 2) {
+        failures.push(`Popover actions are clipped at ${width}/${theme}: ${JSON.stringify(popup)}`)
+      }
       await page.screenshot({ path: `${output}/${width}-${theme}-popup.png` })
       await page.keyboard.press('Escape')
       await page.locator('#playground').scrollIntoViewIfNeeded()

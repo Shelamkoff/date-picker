@@ -439,3 +439,30 @@
     white-space: nowrap;
   }
 }
+
+/* Keep the footer reachable when an anchored calendar has limited vertical room. */
+.sdp-datepicker--calendar:not(.sdp-datepicker--inline) .sdp-calendar__footer {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  background: var(--sdp-surface, #000000);
+}
+
+/* A short viewport needs compact rows instead of cutting off the actions. */
+@media (max-height: 700px) {
+  .sdp-datepicker--calendar:not(.sdp-datepicker--inline) .sdp-calendar__cell {
+    aspect-ratio: auto;
+    height: 2rem;
+  }
+}
+
+/* Week-number calendars in narrow containers need unambiguous short weekday labels. */
+@media (max-width: 420px) {
+  .sdp-calendar__grid.has-week-numbers .sdp-calendar__weekday[role='columnheader'] {
+    font-size: 0;
+  }
+  .sdp-calendar__grid.has-week-numbers .sdp-calendar__weekday[role='columnheader']::after {
+    content: attr(data-compact);
+    font-size: 0.75rem;
+  }
+}

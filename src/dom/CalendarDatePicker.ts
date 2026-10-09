@@ -515,7 +515,10 @@ export class CalendarDatePicker {
       const header = this.#document.createElement('span')
       header.className = 'sdp-calendar__weekday'
       header.setAttribute('role', 'columnheader')
-      header.textContent = weekdayFormatter.format(date)
+      const fullLabel = weekdayFormatter.format(date)
+      header.textContent = fullLabel
+      header.dataset.compact = Array.from(fullLabel).slice(0, 2).join('')
+      header.setAttribute('aria-label', fullLabel)
       weekdays.append(header)
     }
     fragment.append(weekdays)
