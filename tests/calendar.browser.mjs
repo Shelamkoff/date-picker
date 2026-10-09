@@ -183,6 +183,31 @@ try {
   })
   assert.deepEqual(transaction, { failed: true, unchanged: true, committed: true })
 
+  const todayButtons = await page.evaluate(async () => {
+    const { CalendarDatePicker } = await import('./dist/index.js')
+    const host = document.createElement('div')
+    document.body.append(host)
+    const picker = new CalendarDatePicker(host, {
+      inline: true, showToday: true, clearable: false,
+      now: () => new Date(2026, 9, 9),
+      minDate: new Date(2026, 9, 10),
+    })
+    const today = host.querySelector('.sdp-calendar__footer .sdp-calendar__action')
+    const disabledWhenUnavailable = today.disabled
+    picker.update({ minDate: new Date(2026, 9, 1) })
+    const enabledWhenAvailable = !today.disabled
+    picker.update({ showToday: false, clearable: false })
+    const footerHiddenWhenEmpty = host.querySelector('.sdp-calendar__footer').hidden
+    picker.destroy()
+    host.remove()
+    return { disabledWhenUnavailable, enabledWhenAvailable, footerHiddenWhenEmpty }
+  })
+  assert.deepEqual(todayButtons, {
+    disabledWhenUnavailable: true,
+    enabledWhenAvailable: true,
+    footerHiddenWhenEmpty: true,
+  }, 'today and footer states must reflect available actions')
+
   await page.evaluate(() => {
     window.__calendarRange.picker.destroy()
     window.__calendarMultiple.picker.destroy()

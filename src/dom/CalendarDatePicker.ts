@@ -132,6 +132,7 @@ export class CalendarDatePicker {
   #grid: HTMLDivElement
   #today: HTMLButtonElement
   #footerClear: HTMLButtonElement
+  #footer: HTMLDivElement
   #open = false
   #destroyed = false
   #focusedDay: number | null = null
@@ -212,6 +213,7 @@ export class CalendarDatePicker {
     this.#popover.append(this.#grid)
 
     const footer = create('div', 'sdp-calendar__footer')
+    this.#footer = footer
     this.#today = button('sdp-calendar__action', this.#view.todayLabel)
     this.#footerClear = button('sdp-calendar__action', this.#view.clearLabel)
     this.#today.addEventListener('click', () => this.selectToday())
@@ -477,7 +479,8 @@ export class CalendarDatePicker {
     this.#next.disabled = this.#view.disabled || !this.#model.canNavigate(1)
     this.#today.textContent = this.#view.todayLabel
     this.#today.hidden = !this.#view.showToday
-    this.#today.disabled = this.#view.disabled || this.#view.readOnly
+    this.#today.disabled = this.#view.disabled || this.#view.readOnly || !this.#model.canSelectToday()
+    this.#footer.hidden = !this.#view.showToday && !this.#view.clearable
     this.#footerClear.textContent = this.#view.clearLabel
     this.#footerClear.hidden = !this.#view.clearable
     this.#footerClear.disabled = this.#view.disabled || this.#view.readOnly || !hasSelection(value, this.mode)

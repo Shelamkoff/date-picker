@@ -181,3 +181,18 @@ test('combined options and explicit value updates are atomic', () => {
   assert.equal(picker.isSelectable(current), false)
   assert.equal(picker.month, 10)
 })
+
+test('today action availability follows constraints and disabled dates', () => {
+  const today = date(2026, 10, 9)
+  const picker = new CalendarSelectionController({
+    now: () => today, minDate: date(2026, 10, 10),
+  })
+  assert.equal(picker.canSelectToday(), false, 'today is out of bounds')
+  assert.equal(picker.selectToday(), false)
+  picker.update({ minDate: date(2026, 10, 1) })
+  assert.equal(picker.canSelectToday(), true)
+  picker.update({ disabledDate: day => day.getDate() === 9 })
+  assert.equal(picker.canSelectToday(), false, 'disabledDate applies to today action')
+  picker.update({ disabledDate: null })
+  assert.equal(picker.canSelectToday(), true)
+})

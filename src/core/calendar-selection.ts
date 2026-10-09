@@ -243,6 +243,10 @@ export class CalendarSelectionController {
     return this.#selectable(dayNumber(date)) !== null
   }
 
+  canSelectToday(): boolean {
+    return this.isSelectable(this.#readNow())
+  }
+
   #rangeAllowed(start: number, end: number): boolean {
     const first = Math.min(start, end)
     const last = Math.max(start, end)
