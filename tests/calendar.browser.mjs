@@ -77,6 +77,8 @@ try {
   await page.locator('#cal-week').check()
   assert.ok(await page.locator('#cal-live .sdp-calendar__week-number').count() > 0)
   await page.locator('#cal-mode').selectOption('range')
+  // Demo controls move focus away from the regression picker; reopen it explicitly.
+  await page.evaluate(() => window.__calendarRange.picker.open())
   const day = (host, date) => page.locator('#' + host + ' .sdp-calendar__day:not(.is-outside)')
     .filter({ hasText: new RegExp('^' + date + '$') })
   const rangePopover = page.locator('#cal-range-regression .sdp-datepicker__popover')
