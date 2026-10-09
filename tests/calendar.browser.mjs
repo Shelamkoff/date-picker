@@ -381,6 +381,28 @@ try {
     document.querySelector('#keyboard-range-preview').remove()
   })
 
+
+  // A throwing disabledDate callback during the first inline render must not
+  // leave a partial picker tree on the caller's host.
+  const constructorFailure = await page.evaluate(async () => {
+    const { CalendarDatePicker } = await import('./dist/index.js')
+    const host = document.createElement('div')
+    document.body.append(host)
+    let rejected = false
+    try {
+      new CalendarDatePicker(host, {
+        inline: true, now: () => new Date(2026, 9, 9, 12),
+        disabledDate: () => { throw new Error('predicate failure') },
+      })
+    }
+    catch (error) { rejected = error?.message === 'predicate failure' }
+    const leftover = host.childElementCount
+    host.remove()
+    return { rejected, leftover }
+  })
+  assert.deepEqual(constructorFailure, { rejected: true, leftover: 0 },
+    'failed calendar construction must not modify the host')
+
   await page.evaluate(() => {
     window.__calendarRange.picker.destroy()
     window.__calendarMultiple.picker.destroy()

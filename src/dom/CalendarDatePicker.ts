@@ -221,8 +221,11 @@ export class CalendarDatePicker {
     this.#footerClear.addEventListener('click', this.#onClearClick)
     footer.append(this.#today, this.#footerClear)
     this.#popover.append(footer)
-    host.append(root)
+    // Render and validate before mounting into user-owned DOM. If an option
+    // callback throws during the first calendar grid render, construction must
+    // not leave an orphaned, partially initialized picker in the host.
     this.#render()
+    host.append(root)
   }
 
   get mode(): CalendarSelectionMode { return this.#model.mode }
