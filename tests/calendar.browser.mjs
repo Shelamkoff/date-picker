@@ -403,6 +403,34 @@ try {
   assert.deepEqual(constructorFailure, { rejected: true, leftover: 0 },
     'failed calendar construction must not modify the host')
 
+
+  // The widget must recover from a disabledDate callback that only throws
+  // while rendering its visible month (with no selected value to validate).
+  const transactionalPredicate = await page.evaluate(async () => {
+    const { CalendarDatePicker } = await import('./dist/index.js')
+    const host = document.createElement('div')
+    document.body.append(host)
+    const picker = new CalendarDatePicker(host, {
+      inline: true, now: () => new Date(2026, 9, 9, 12),
+    })
+    let rejected = false
+    try {
+      picker.update({
+        disabledDate: date => {
+          if (date.getMonth() === 9 && date.getDate() === 20) throw new Error('grid callback failed')
+          return false
+        },
+      })
+    }
+    catch (error) { rejected = error?.message === 'grid callback failed' }
+    const canStillSelect = !host.querySelector('.sdp-calendar__day:not(.is-outside):disabled')
+      ? false : picker.snapshot.days.some(day => day.month === 10 && day.day === 20 && !day.disabled)
+    picker.destroy()
+    host.remove()
+    return { rejected, canStillSelect }
+  })
+  assert.deepEqual(transactionalPredicate, { rejected: true, canStillSelect: true })
+
   await page.evaluate(() => {
     window.__calendarRange.picker.destroy()
     window.__calendarMultiple.picker.destroy()

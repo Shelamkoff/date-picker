@@ -329,13 +329,18 @@ export class CalendarSelectionController {
   ): void {
     if (options.mode !== undefined && options.mode !== this.mode) throw new RangeError('Cannot change selection mode of an existing picker')
     const resolved = resolveOptions(options, this.#options)
+    // Validate the selection AND the resulting visible month before announcing
+    // the update. A disabledDate/now callback can throw while rendering even
+    // when the picker has no current selection.
     const previousOptions = this.#options
-    this.#options = resolved
-    let next: CalendarSelectionValue
+    const previousValue = this.#value
+    const previousYear = this.#year
+    const previousMonth = this.#month
+    const previousHover = this.#hoverDay
     try {
+      this.#options = resolved
+      let next: CalendarSelectionValue
       if (state !== undefined) {
-        // Validate the explicitly supplied value against the proposed options
-        // before committing either. A rejected combined update is atomic.
         next = this.#normalizeValue(state.value)
       }
       else {
@@ -345,22 +350,27 @@ export class CalendarSelectionController {
           next = emptyValue(this.mode)
         }
       }
+      this.#value = next
+      this.#hoverDay = null
+      if (state !== undefined) {
+        const selected = this.#firstValue()
+        if (selected) {
+          this.#year = selected.getFullYear()
+          this.#month = selected.getMonth() + 1
+        }
+      }
+      this.#clampViewToBounds()
+      this.#setMonth(this.#year, this.#month)
+      this.getMonth()
     }
     catch (error) {
       this.#options = previousOptions
+      this.#value = previousValue
+      this.#year = previousYear
+      this.#month = previousMonth
+      this.#hoverDay = previousHover
       throw error
     }
-    this.#value = next
-    this.#hoverDay = null
-    if (state !== undefined) {
-      const selected = this.#firstValue()
-      if (selected) {
-        this.#year = selected.getFullYear()
-        this.#month = selected.getMonth() + 1
-      }
-    }
-    this.#clampViewToBounds()
-    this.#setMonth(this.#year, this.#month)
     this.#emit({ type: 'state', reason: 'options' })
   }
 

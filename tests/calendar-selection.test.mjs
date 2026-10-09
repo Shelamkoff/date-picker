@@ -220,3 +220,22 @@ test('today action cannot exceed multiple selection limit or complete an invalid
   assert.equal(range.selectToday(), true)
   assert.deepEqual(day(range.value.end), [2026, 10, 9])
 })
+
+test('a throwing disabledDate callback on an unselected month cannot partially apply options', () => {
+  const fixed = date(2026, 10, 9)
+  const picker = new CalendarSelectionController({ now: () => fixed })
+  const events = []
+  picker.subscribe(event => events.push(event))
+  assert.throws(() => picker.update({
+    disabledDate: value => {
+      if (value.getDate() === 20 && value.getMonth() === 9) throw new Error('bad predicate')
+      return false
+    },
+  }), /bad predicate/)
+  assert.equal(picker.value, null)
+  assert.equal(picker.isSelectable(date(2026, 10, 20)), true, 'previous disabledDate must be restored')
+  assert.equal(picker.getMonth().month, 10)
+  assert.deepEqual(events, [])
+  picker.update({ disabledDate: day => day.getDate() === 20 })
+  assert.equal(picker.isSelectable(date(2026, 10, 20)), false)
+})
