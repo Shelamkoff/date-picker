@@ -404,8 +404,14 @@ export class CalendarDatePicker {
     let next: number | null = null
     let direction = 1
     switch (event.key) {
-      case 'ArrowLeft': next = current - 1; direction = -1; break
-      case 'ArrowRight': next = current + 1; break
+      case 'ArrowLeft':
+        direction = this.#document.defaultView?.getComputedStyle(this.#grid).direction === 'rtl' ? 1 : -1
+        next = current + direction
+        break
+      case 'ArrowRight':
+        direction = this.#document.defaultView?.getComputedStyle(this.#grid).direction === 'rtl' ? -1 : 1
+        next = current + direction
+        break
       case 'ArrowUp': next = current - 7; direction = -1; break
       case 'ArrowDown': next = current + 7; break
       case 'Home': next = current - ((civilWeekday(current) - this.#model.weekStartsOn + 7) % 7); direction = -1; break
@@ -555,7 +561,10 @@ export class CalendarDatePicker {
       weekdays.append(header)
     }
     fragment.append(weekdays)
-    const labelFormatter = new Intl.DateTimeFormat(this.#view.locale, { dateStyle: 'full' })
+    // The headless calendar is Gregorian regardless of the locale's default
+    // calendar (e.g. Buddhist in th-TH or Persian in fa-IR). Accessible labels
+    // must describe the same civil day that is displayed in the grid.
+    const labelFormatter = new Intl.DateTimeFormat(this.#view.locale, { dateStyle: 'full', calendar: 'gregory' })
     const root = this.#grid.getRootNode()
     const active = 'activeElement' in root ? (root as Document | ShadowRoot).activeElement : this.#document.activeElement
     const restoreFocus = active !== null && this.#grid.contains(active)

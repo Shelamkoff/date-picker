@@ -291,6 +291,56 @@ try {
   })
   assert.deepEqual(actionLimits, { disabledAtCapacity: true, enabledToToggle: true })
 
+
+  // Gregorian grid and full accessible labels must refer to the same year even
+  // in locales whose default calendar is not Gregorian.
+  const localizedCalendar = await page.evaluate(async () => {
+    const { CalendarDatePicker } = await import('./dist/index.js')
+    const actual = []
+    for (const locale of ['th-TH', 'fa-IR', 'ja-JP-u-ca-japanese']) {
+      const host = document.createElement('div')
+      document.body.append(host)
+      const date = new Date(2026, 9, 9, 12)
+      const picker = new CalendarDatePicker(host, { inline: true, locale, now: () => date })
+      const today = host.querySelector('.sdp-calendar__day[aria-current="date"]')
+      const label = today?.getAttribute('aria-label')
+      const expected = new Intl.DateTimeFormat(locale, { dateStyle: 'full', calendar: 'gregory' }).format(date)
+      actual.push({ locale, label, expected })
+      picker.destroy()
+      host.remove()
+    }
+    return actual
+  })
+  for (const item of localizedCalendar) {
+    assert.equal(item.label, item.expected, `calendar date label must stay Gregorian for ${item.locale}`)
+  }
+
+  // CSS grid items are laid out right-to-left for dir=rtl: ArrowLeft should
+  // advance visually towards the next day, ArrowRight should go back.
+  await page.evaluate(async () => {
+    const { CalendarDatePicker, civilDayNumber } = await import('./dist/index.js')
+    const host = document.createElement('div')
+    host.id = 'rtl-keyboard-regression'
+    host.dir = 'rtl'
+    document.body.append(host)
+    const picker = new CalendarDatePicker(host, {
+      inline: true, locale: 'ar-EG', now: () => new Date(2026, 9, 9, 12),
+    })
+    window.__rtlKeyboard = { picker, todayOrdinal: civilDayNumber(2026, 10, 9) }
+  })
+  const rtlToday = page.locator('#rtl-keyboard-regression .sdp-calendar__day[aria-current="date"]')
+  await rtlToday.focus()
+  await page.keyboard.press('ArrowLeft')
+  assert.equal(await page.locator('#rtl-keyboard-regression .sdp-calendar__day:focus').getAttribute('data-day-ordinal'),
+    String(await page.evaluate(() => window.__rtlKeyboard.todayOrdinal + 1)))
+  await page.keyboard.press('ArrowRight')
+  assert.equal(await page.locator('#rtl-keyboard-regression .sdp-calendar__day:focus').getAttribute('data-day-ordinal'),
+    String(await page.evaluate(() => window.__rtlKeyboard.todayOrdinal)))
+  await page.evaluate(() => {
+    window.__rtlKeyboard.picker.destroy()
+    document.querySelector('#rtl-keyboard-regression').remove()
+  })
+
   await page.evaluate(() => {
     window.__calendarRange.picker.destroy()
     window.__calendarMultiple.picker.destroy()
