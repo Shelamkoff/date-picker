@@ -40,7 +40,19 @@ try {
           sampleFont: getComputedStyle(document.querySelector('#calendar-single .sdp-datepicker__value')).fontSize,
         }
       })
-      if (base.scrollWidth > width + 1) failures.push(`Horizontal document overflow at ${width}/${theme}: ${base.scrollWidth}`)
+      if (base.scrollWidth > width + 1) {
+        const overflowing = await page.evaluate(() => [...document.querySelectorAll('*')]
+          .map(node => {
+            const rect = node.getBoundingClientRect()
+            const style = getComputedStyle(node)
+            return { node: node.tagName.toLowerCase(), id: node.id, className: typeof node.className === 'string' ? node.className.slice(0, 80) : '',
+              x: Math.round(rect.left), right: Math.round(rect.right), width: Math.round(rect.width), overflow: style.overflowX,
+              scrollWidth: node.scrollWidth, clientWidth: node.clientWidth, display: style.display }
+          })
+          .filter(item => item.right > innerWidth + 2 && item.width > 0 && item.display !== 'none')
+          .sort((a, b) => b.right - a.right).slice(0, 15))
+        failures.push(`Horizontal document overflow at ${width}/${theme}: ${base.scrollWidth}; offenders ${JSON.stringify(overflowing)}`)
+      }
       await page.locator('#cal-mode').selectOption('range')
       await page.locator('#cal-inline').check()
       await page.locator('#cal-week').check()
@@ -59,6 +71,7 @@ try {
         }
       })
       if (inline.scrollWidth > inline.clientWidth + 2) failures.push(`Inline calendar overflow at ${width}/${theme}: ${inline.scrollWidth}/${inline.clientWidth}`)
+      if (inline.right > width + 2) failures.push(`Inline calendar outside viewport at ${width}/${theme}: ${inline.right}`)
       if (inline.dayMin < 22) failures.push(`Calendar day too small at ${width}/${theme}: ${inline.dayMin.toFixed(1)}px`)
       await page.screenshot({ path: `${output}/${width}-${theme}-inline-weeknumbers.png` })
       await page.locator('#cal-inline').uncheck()
