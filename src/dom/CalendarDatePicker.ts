@@ -133,6 +133,7 @@ export class CalendarDatePicker {
   #positionFrame: number | null = null
   #listening = false
   #replacingGrid = false
+  #internalPointerId: number | null = null
   #id: string
   #explicitWeekStart: boolean
   static #counter = 0
@@ -404,9 +405,9 @@ export class CalendarDatePicker {
     this.#trigger.focus()
   }
   #onFocusOut = (): void => {
-    if (!this.#open || this.#replacingGrid) return
+    if (!this.#open || this.#replacingGrid || this.#internalPointerId !== null) return
     queueMicrotask(() => {
-      if (!this.#open || this.#destroyed) return
+      if (!this.#open || this.#destroyed || this.#internalPointerId !== null) return
       const root = this.element.getRootNode() as Document | ShadowRoot
       const focus = root.activeElement ?? this.#document.activeElement
       if (!focus || !this.element.contains(focus)) this.close()
@@ -569,13 +570,23 @@ export class CalendarDatePicker {
 
   #handleOutsidePointer = (event: PointerEvent): void => {
     if (!this.#open) return
-    if (event.composedPath().includes(this.element)) return
+    if (event.composedPath().includes(this.element)) {
+      this.#internalPointerId = event.pointerId
+      return
+    }
+    this.#internalPointerId = null
     this.close()
+  }
+  #handleInternalPointerEnd = (event: PointerEvent): void => {
+    if (this.#internalPointerId !== event.pointerId) return
+    this.#internalPointerId = null
   }
   #handleViewport = (): void => this.#queuePosition()
   #attachListeners(): void {
     if (this.#listening) return
     this.#document.addEventListener('pointerdown', this.#handleOutsidePointer, true)
+    this.#document.addEventListener('pointerup', this.#handleInternalPointerEnd, true)
+    this.#document.addEventListener('pointercancel', this.#handleInternalPointerEnd, true)
     const window = this.#document.defaultView
     window?.addEventListener('resize', this.#handleViewport, { passive: true })
     window?.addEventListener('scroll', this.#handleViewport, true)
@@ -584,6 +595,9 @@ export class CalendarDatePicker {
   #detachListeners(): void {
     if (this.#listening) {
       this.#document.removeEventListener('pointerdown', this.#handleOutsidePointer, true)
+      this.#document.removeEventListener('pointerup', this.#handleInternalPointerEnd, true)
+      this.#document.removeEventListener('pointercancel', this.#handleInternalPointerEnd, true)
+      this.#internalPointerId = null
       const window = this.#document.defaultView
       window?.removeEventListener('resize', this.#handleViewport)
       window?.removeEventListener('scroll', this.#handleViewport, true)
