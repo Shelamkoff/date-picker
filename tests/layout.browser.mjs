@@ -178,6 +178,38 @@ try {
   })
   metrics.push({ rtl })
 
+
+  // Increased root text size (text zoom) should preserve a usable month grid
+  // without widening the document or clipping its title/navigation.
+  await page.setViewportSize({ width: 320, height: 750 })
+  await page.goto(process.env.AUDIT_URL ?? 'http://127.0.0.1:4173/index.html', { waitUntil: 'networkidle' })
+  await page.evaluate(() => { document.documentElement.style.fontSize = '200%' })
+  await page.locator('#cal-inline').check()
+  await page.locator('#cal-week').check()
+  await page.locator('#cal-live').scrollIntoViewIfNeeded()
+  const enlarged = await page.evaluate(() => {
+    const picker = document.querySelector('#cal-live .sdp-datepicker__calendar-popover')
+    const header = picker.querySelector('.sdp-calendar__header')
+    const title = header.querySelector('.sdp-calendar__title')
+    const grid = picker.querySelector('.sdp-calendar__grid')
+    const box = picker.getBoundingClientRect()
+    return {
+      docWidth: document.documentElement.scrollWidth,
+      viewportWidth: innerWidth,
+      pickerRight: box.right, pickerWidth: box.width,
+      titleClientWidth: title.clientWidth, titleScrollWidth: title.scrollWidth,
+      gridClientWidth: grid.clientWidth, gridScrollWidth: grid.scrollWidth,
+    }
+  })
+  await page.screenshot({ path: `${output}/320-200pct-text-zoom-inline.png` })
+  if (enlarged.docWidth > enlarged.viewportWidth + 1
+    || enlarged.pickerRight > enlarged.viewportWidth + 2
+    || enlarged.titleScrollWidth > enlarged.titleClientWidth + 2
+    || enlarged.gridScrollWidth > enlarged.gridClientWidth + 2) {
+    failures.push(`200% text zoom overflow: ${JSON.stringify(enlarged)}`)
+  }
+  metrics.push({ textZoom: enlarged })
+
   console.log('LAYOUT_METRICS=' + JSON.stringify(metrics))
   console.log('LAYOUT_FAILURES=' + JSON.stringify(failures))
   assert.deepEqual(failures, [])
