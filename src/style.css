@@ -98,7 +98,7 @@
   flex: 1;
   overflow: hidden;
   color: var(--sdp-text, #f4f5f5);
-  font-size: 0.72rem;
+  font-size: 0.8125rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -194,7 +194,7 @@
   background: transparent;
   color: var(--sdp-muted, #8b9195);
   font: inherit;
-  font-size: 0.6875rem;
+  font-size: 0.8125rem;
   font-weight: 600;
   cursor: pointer;
 }
@@ -233,7 +233,7 @@
   display: grid;
   place-items: center;
   color: var(--sdp-muted, #8b9195);
-  font-size: var(--sdp-option-font-size, 0.75rem);
+  font-size: var(--sdp-option-font-size, 0.8125rem);
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
@@ -351,7 +351,7 @@
   place-items: center;
   min-height: 2rem;
   color: var(--sdp-muted, #8b9195);
-  font-size: 0.6875rem;
+  font-size: 0.75rem;
   font-variant-numeric: tabular-nums;
 }
 .sdp-calendar__cell { min-width: 0; aspect-ratio: 1; }
@@ -367,7 +367,7 @@
   background: transparent;
   color: var(--sdp-text, #f4f5f5);
   font: inherit;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
 }
@@ -411,11 +411,30 @@
   cursor: pointer;
   padding: 0.25rem 0.65rem;
   font: inherit;
-  font-size: 0.75rem;
+  font-size: 0.8125rem;
 }
 .sdp-calendar__action:disabled { opacity: 0.35; cursor: not-allowed; }
 .sdp-theme-light, [data-sdp-theme='light'] {
   --sdp-selected-bg: #1859c9;
   --sdp-selected-text: #ffffff;
   --sdp-range-bg: rgb(24 89 201 / 12%);
+}
+
+/* Keep all five wheel columns visible on narrow screens, including time. */
+@media (max-width: 480px) {
+  .sdp-datepicker__wheels { padding-inline: 0.375rem; }
+  .sdp-datepicker__columns { width: 100%; min-width: 0; gap: 0; }
+  .sdp-datepicker__columns > .sdp-wheel {
+    flex: 1 1 0;
+    width: 0 !important;
+    min-width: 0;
+  }
+  .sdp-datepicker__time-separator { margin-inline: 0.2rem; }
+  .sdp-datepicker__colon { flex: 0 0 0.625rem; text-align: center; font-size: 0.875rem; }
+  .sdp-wheel__option {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
 }
