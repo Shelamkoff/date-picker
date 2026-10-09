@@ -232,8 +232,8 @@ export class CalendarDatePicker {
       ...(options.locale !== undefined && options.weekStartsOn === undefined && !this.#explicitWeekStart
         ? { weekStartsOn: localeWeekStartsOn(nextView.locale) } : {}),
     }
-    if (options.weekStartsOn !== undefined) this.#explicitWeekStart = true
     this.#model.update(selectionOptions)
+    if (options.weekStartsOn !== undefined) this.#explicitWeekStart = true
     if (Object.prototype.hasOwnProperty.call(options, 'value') && options.value !== undefined) {
       this.#model.setValue(options.value)
     }
@@ -334,12 +334,24 @@ export class CalendarDatePicker {
     if (!button || button.disabled) return
     const ordinal = Number(button.dataset.dayOrdinal)
     const date = civilOrdinalToDate(ordinal)
-    if (date) { this.#model.hover(date); this.#renderGrid() }
+    if (date) { this.#model.hover(date); this.#refreshRangePreview() }
   }
   #onGridPointerLeave = (): void => {
     if (!this.#model.isRangePending) return
     this.#model.hover(null)
-    this.#renderGrid()
+    this.#refreshRangePreview()
+  }
+  // Update only visual state while hovering. Replacing the DOM grid during
+  // pointerover would discard the click target before pointerup.
+  #refreshRangePreview(): void {
+    const month = this.#model.getMonth()
+    for (const day of month.days) {
+      const ordinal = civilDayNumber(day.year, day.month, day.day)
+      const button = this.#dayByOrdinal(ordinal)
+      if (!button) continue
+      button.classList.toggle('is-in-range', day.inRange)
+      button.classList.toggle('is-preview', day.preview)
+    }
   }
   #onGridFocusIn = (event: FocusEvent): void => {
     const button = this.#dayButton(event.target)
@@ -496,7 +508,8 @@ export class CalendarDatePicker {
     }
     fragment.append(weekdays)
     const labelFormatter = new Intl.DateTimeFormat(this.#view.locale, { dateStyle: 'full' })
-    const active = this.#document.activeElement
+    const root = this.#grid.getRootNode()
+    const active = 'activeElement' in root ? (root as Document | ShadowRoot).activeElement : this.#document.activeElement
     const restoreFocus = active !== null && this.#grid.contains(active)
     const activeOrdinal = restoreFocus ? Number((active as HTMLElement).dataset.dayOrdinal) : null
     for (let rowIndex = 0; rowIndex < month.days.length; rowIndex += 7) {

@@ -84,5 +84,7 @@ jobs:
           cat /tmp/date-picker-http.log
           exit 1
 
-      - name: Test pointer selections and direct wheel entry
-        run: node tests/pointer-selection.browser.mjs
+      - name: Test pointer and calendar interactions
+        run: |
+          node tests/pointer-selection.browser.mjs
+          node tests/calendar.browser.mjs
