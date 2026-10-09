@@ -35,7 +35,6 @@ try {
       onChange(value) { multiChanges.push(value.map(date => date.getDate())) },
     })
     window.__calendarMultiple = { picker: multiPicker, changes: multiChanges }
-    multiPicker.open()
     const inline = document.createElement('div')
     inline.id = 'cal-inline-regression'
     inline.style.width = '340px'
@@ -71,6 +70,7 @@ try {
   await page.keyboard.press('Escape')
   assert.equal(await rangePopover.isVisible(), false)
 
+  await page.evaluate(() => window.__calendarMultiple.picker.open())
   await day('cal-multiple-regression', 11).click()
   await day('cal-multiple-regression', 9).click()
   await day('cal-multiple-regression', 15).click()
