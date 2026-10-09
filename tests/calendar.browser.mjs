@@ -66,6 +66,17 @@ try {
     window.__calendarLocales = { usPicker, gbPicker }
   })
 
+  const stylesheets = await page.locator('link[rel="stylesheet"]').evaluateAll(nodes => nodes.map(node => node.href))
+  assert.ok(stylesheets.some(url => url.endsWith('/src/style.css')))
+  for (const stylesheet of stylesheets) {
+    assert.equal((await page.request.get(stylesheet)).status(), 200, 'missing stylesheet: ' + stylesheet)
+  }
+  await page.locator('#cal-mode').selectOption('multiple')
+  await page.locator('#cal-inline').check()
+  assert.equal(await page.locator('#cal-live .sdp-datepicker--inline').count(), 1)
+  await page.locator('#cal-week').check()
+  assert.ok(await page.locator('#cal-live .sdp-calendar__week-number').count() > 0)
+  await page.locator('#cal-mode').selectOption('range')
   const day = (host, date) => page.locator('#' + host + ' .sdp-calendar__day:not(.is-outside)')
     .filter({ hasText: new RegExp('^' + date + '$') })
   const rangePopover = page.locator('#cal-range-regression .sdp-datepicker__popover')
@@ -107,12 +118,12 @@ try {
     gb: window.__calendarLocales.gbPicker.snapshot.weekStartsOn,
   })), { us: 0, gb: 1 }, 'week starts on Sunday in the US and Monday in Great Britain')
   const readOnlyDay = day('cal-readonly-regression', 9)
-  assert.equal(await readOnlyDay.isDisabled(), false, 'read-only cells stay keyboard focusable')
+  assert.equal(await readOnlyDay.evaluate(button => button.disabled), false, 'read-only cells stay keyboard focusable')
   assert.equal(await readOnlyDay.getAttribute('aria-disabled'), 'true')
   await readOnlyDay.focus()
   await page.keyboard.press('ArrowRight')
   assert.equal(await page.locator('#cal-readonly-regression .sdp-calendar__day:focus').textContent(), '10')
-  await day('cal-readonly-regression', 10).click()
+  await page.keyboard.press('Enter')
   assert.equal(await page.evaluate(() => window.__calendarReadonly.value), null, 'read-only rejects selection')
   assert.equal(await day('cal-inline-regression', 11).isDisabled(), true, 'disabledDate is reflected in DOM')
   assert.equal(await page.locator('#cal-inline-regression .sdp-calendar__week-number').count() > 0, true)

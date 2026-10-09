@@ -7,7 +7,8 @@ A dependency-free, framework-agnostic date and time picker written in TypeScript
 ## Features
 
 - zero runtime dependencies;
-- standalone DOM widget and DOM-independent controller;
+- standalone DOM widgets and DOM-independent controllers;
+- calendar mode: single date, date range, multiple dates, inline and popover presentation;
 - date-only and date-time modes;
 - min/max constraints applied to every wheel;
 - configurable minute step;
@@ -204,10 +205,6 @@ npm pack --dry-run --ignore-scripts
 
 The tests cover value normalization, bounds, minute-step boundary values, month-label modes, direct wheel entry, duplicate change suppression, defensive snapshots, partial DST gaps, pointer interactions and generation-safe wheel motion.
 
-## License
-
-MIT
-
 ## Calendar view: single, range and multiple selection
 
 The existing `DatePicker` wheel widget and `createDatePicker()` headless wheel controller are unchanged. Use `CalendarDatePicker` for a month-grid calendar, or `createDatePickerWidget()` to select the view at construction time.
@@ -249,3 +246,17 @@ Calendar options: `mode` (`single`, `range`, `multiple`), inclusive `minDate`/`m
 `CalendarDatePicker.value` and `setValue()` use `Date | null` in single mode, `{start: Date|null, end: Date|null}` in range mode and `readonly Date[]` in multiple mode. The first range click emits a partial range; the second emits the completed range. `update()`, `open()`, `close()`, `toggle()`, `clear()`, `selectToday()`, `navigate(months)`, `focus()`, and `destroy()` are available. The bubbling `date-picker-change` event includes `detail.value`, `detail.reason` and `detail.mode`; `onChange` runs only on a value change. Programmatic `setValue()` does not emit user-change events.
 
 The independent, DOM-free `CalendarSelectionController` is exported from `@shelamkoff/date-picker/core`. It supports the same selection, bounds, range checks and month calculation, with `subscribe()` and defensive snapshots. All modes share calendar civil-date arithmetic; the original wheel controller remains responsible for local times and minute precision.
+
+## Run the demo locally
+
+```bash
+npm ci
+npm run build
+python3 -m http.server 4173
+```
+
+Open http://127.0.0.1:4173/. CSS is served directly from `src/style.css` and `demo.css`, without generated root-level files. GitHub Pages publishes these assets with versioned library paths.
+
+## License
+
+MIT

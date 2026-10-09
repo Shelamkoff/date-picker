@@ -73,7 +73,6 @@ jobs:
 
       - name: Start demo server
         run: |
-          cp src/style.css style.css
           python3 -m http.server 4173 --bind 127.0.0.1 > /tmp/date-picker-http.log 2>&1 &
           for attempt in {1..30}; do
             if curl --fail --silent http://127.0.0.1:4173/index.html >/dev/null; then
