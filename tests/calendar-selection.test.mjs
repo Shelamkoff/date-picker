@@ -196,3 +196,27 @@ test('today action availability follows constraints and disabled dates', () => {
   picker.update({ disabledDate: null })
   assert.equal(picker.canSelectToday(), true)
 })
+
+test('today action cannot exceed multiple selection limit or complete an invalid range', () => {
+  const today = date(2026, 10, 9)
+  const multi = new CalendarSelectionController({
+    mode: 'multiple', maxSelections: 1, now: () => today,
+  }, [date(2026, 10, 8)])
+  assert.equal(multi.canSelectToday(), false, 'maximum selections prevents adding today')
+  assert.equal(multi.selectToday(), false)
+  multi.setValue([today])
+  assert.equal(multi.canSelectToday(), true, 'selecting an already chosen today can toggle it off')
+  assert.equal(multi.selectToday(), true)
+  assert.deepEqual(multi.value, [])
+
+  const range = new CalendarSelectionController({
+    mode: 'range', minRangeDays: 3, now: () => today,
+  })
+  assert.equal(range.select(date(2026, 10, 8)), true)
+  assert.equal(range.canSelectToday(), false, 'today cannot complete a too-short range')
+  assert.equal(range.selectToday(), false)
+  range.setValue({ start: date(2026, 10, 7), end: null })
+  assert.equal(range.canSelectToday(), true)
+  assert.equal(range.selectToday(), true)
+  assert.deepEqual(day(range.value.end), [2026, 10, 9])
+})

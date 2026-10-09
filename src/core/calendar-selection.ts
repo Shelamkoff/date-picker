@@ -244,7 +244,21 @@ export class CalendarSelectionController {
   }
 
   canSelectToday(): boolean {
-    return this.isSelectable(this.#readNow())
+    const today = this.#readNow()
+    if (!this.isSelectable(today)) return false
+    const ordinal = dayNumber(today)
+
+    if (this.mode === 'multiple') {
+      const selected = this.#value as readonly Date[]
+      return selected.some(date => dayNumber(date) === ordinal)
+        || this.#options.maxSelections === null
+        || selected.length < this.#options.maxSelections
+    }
+    if (this.mode === 'range') {
+      const range = this.#value as CalendarRange
+      return !range.start || !!range.end || this.#rangeAllowed(dayNumber(range.start), ordinal)
+    }
+    return true
   }
 
   #rangeAllowed(start: number, end: number): boolean {

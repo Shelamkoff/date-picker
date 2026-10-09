@@ -272,6 +272,25 @@ try {
   assert.deepEqual(disposed, { changes: 0, selected: false, remaining: 0 },
     'detached calendar controls must be inert after destroy()')
 
+  const actionLimits = await page.evaluate(async () => {
+    const { CalendarDatePicker } = await import('./dist/index.js')
+    const host = document.createElement('div')
+    document.body.append(host)
+    const today = new Date(2026, 9, 9)
+    const picker = new CalendarDatePicker(host, {
+      mode: 'multiple', inline: true, maxSelections: 1,
+      value: [new Date(2026, 9, 8)], now: () => today,
+    })
+    const todayAction = host.querySelector('.sdp-calendar__footer .sdp-calendar__action')
+    const disabledAtCapacity = todayAction.disabled
+    picker.setValue([today])
+    const enabledToToggle = !todayAction.disabled
+    picker.destroy()
+    host.remove()
+    return { disabledAtCapacity, enabledToToggle }
+  })
+  assert.deepEqual(actionLimits, { disabledAtCapacity: true, enabledToToggle: true })
+
   await page.evaluate(() => {
     window.__calendarRange.picker.destroy()
     window.__calendarMultiple.picker.destroy()
