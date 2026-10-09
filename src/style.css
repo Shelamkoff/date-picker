@@ -483,12 +483,15 @@
   }
   .sdp-calendar__weekdays,
   .sdp-calendar__week {
-    width: 100%;
-    min-width: max-content;
+    /* Seven 1.5rem day columns + six 0.125rem gaps. */
+    width: max(100%, 11.25rem);
+    min-width: 0;
     grid-template-columns: repeat(7, minmax(1.5rem, 1fr));
   }
   .sdp-calendar__grid.has-week-numbers .sdp-calendar__weekdays,
   .sdp-calendar__grid.has-week-numbers .sdp-calendar__week {
+    /* One 1.5rem week column + seven days + seven gaps. */
+    width: max(100%, 12.875rem);
     grid-template-columns: 1.5rem repeat(7, minmax(1.5rem, 1fr));
   }
 }
