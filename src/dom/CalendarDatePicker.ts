@@ -13,7 +13,7 @@ import {
   type CalendarDay,
 } from '../core/calendar-selection.js'
 import { dayInterval, isValidDate } from '../core/calendar.js'
-import { createMonthFormatter, formatDatePickerValue } from '../core/format.js'
+import { createMonthFormatter, createNumberFormatter, formatDatePickerValue } from '../core/format.js'
 import { resolvePopoverVerticalPlacement } from './PopoverPlacement.js'
 
 export interface CalendarDatePickerOptions extends CalendarSelectionOptions {
@@ -493,7 +493,8 @@ export class CalendarDatePicker {
     const month = this.#model.getMonth()
     this.#grid.classList.toggle('has-week-numbers', this.#view.showWeekNumbers)
     const monthName = createMonthFormatter(this.#view.locale, 'long')(month.month)
-    this.#monthTitle.textContent = `${monthName} ${month.year}`
+    const numberLabel = createNumberFormatter(this.#view.locale, 1, false)
+    this.#monthTitle.textContent = `${monthName} ${numberLabel(month.year)}`
     this.#grid.setAttribute('aria-label', `${monthName} ${month.year}`)
     if (this.#focusedDay === null || !month.days.some(day =>
       !day.disabled && civilDayNumber(day.year, day.month, day.day) === this.#focusedDay
@@ -555,12 +556,12 @@ export class CalendarDatePicker {
         const thursday = startOrdinal === null ? null
           : startOrdinal + ((4 - civilWeekday(startOrdinal) + 7) % 7)
         const weekNumber = thursday === null ? '' : String(isoWeekNumber(thursday))
-        cell.textContent = weekNumber
-        cell.setAttribute('aria-label', `ISO week ${weekNumber}`)
+        cell.textContent = weekNumber ? numberLabel(Number(weekNumber)) : ''
+        cell.setAttribute('aria-label', `ISO week ${cell.textContent}`)
         row.append(cell)
       }
       for (const day of month.days.slice(rowIndex, rowIndex + 7)) {
-        row.append(this.#renderDay(day, labelFormatter))
+        row.append(this.#renderDay(day, labelFormatter, numberLabel))
       }
       fragment.append(row)
     }
@@ -574,7 +575,7 @@ export class CalendarDatePicker {
     finally { this.#replacingGrid = false }
   }
 
-  #renderDay(day: CalendarDay, formatter: Intl.DateTimeFormat): HTMLElement {
+  #renderDay(day: CalendarDay, formatter: Intl.DateTimeFormat, numberLabel: (value: number) => string): HTMLElement {
     const cell = this.#document.createElement('div')
     cell.className = 'sdp-calendar__cell'
     cell.setAttribute('role', 'gridcell')
@@ -583,7 +584,7 @@ export class CalendarDatePicker {
     const element = this.#document.createElement('button')
     element.type = 'button'
     element.className = 'sdp-calendar__day'
-    element.textContent = String(day.day)
+    element.textContent = numberLabel(day.day)
     const ordinal = civilDayNumber(day.year, day.month, day.day)
     element.dataset.dayOrdinal = String(ordinal)
     // Read-only dates remain focusable for keyboard navigation and screen readers.

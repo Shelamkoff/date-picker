@@ -227,6 +227,11 @@ try {
     const isoWeekLabel = januaryFifth?.querySelector('.sdp-calendar__week-number')?.getAttribute('aria-label') ?? null
     const arabicCompacts = [...ar.querySelectorAll('[role="columnheader"]')]
       .map(item => item.dataset.compact)
+    const arabicNumber = new Intl.NumberFormat('ar-EG', { useGrouping: false })
+    const arabicDayDigits = [...ar.querySelectorAll('.sdp-calendar__day:not(.is-outside)')]
+      .some(button => button.textContent === arabicNumber.format(5))
+    const arabicYearDigits = ar.querySelector('.sdp-calendar__title')
+      ?.textContent?.includes(arabicNumber.format(2026)) ?? false
     usPicker.destroy()
     arPicker.destroy()
     us.remove()
@@ -235,10 +240,12 @@ try {
       isoWeek, isoWeekLabel,
       distinctArabic: new Set(arabicCompacts).size,
       countArabic: arabicCompacts.length,
+      arabicDayDigits, arabicYearDigits,
     }
   })
   assert.deepEqual(localeLabels, {
     isoWeek: '2', isoWeekLabel: 'ISO week 2', distinctArabic: 7, countArabic: 7,
+    arabicDayDigits: true, arabicYearDigits: true,
   }, 'ISO week labels and compact localized weekday labels remain meaningful')
 
   await page.evaluate(() => {
