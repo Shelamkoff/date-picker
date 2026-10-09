@@ -180,11 +180,11 @@ export class CalendarDatePicker {
     this.#trigger = button('sdp-datepicker__trigger', '')
     this.#trigger.setAttribute('aria-haspopup', 'dialog')
     this.#trigger.setAttribute('aria-controls', this.#id)
-    this.#trigger.addEventListener('click', () => this.toggle())
+    this.#trigger.addEventListener('click', this.#onTriggerClick)
     this.#valueText = create('span', 'sdp-datepicker__value')
     this.#trigger.append(this.#valueText)
     this.#clear = button('sdp-datepicker__clear', '×')
-    this.#clear.addEventListener('click', () => this.clear())
+    this.#clear.addEventListener('click', this.#onClearClick)
     this.#control.append(this.#trigger, this.#clear)
     root.append(this.#control)
 
@@ -198,8 +198,8 @@ export class CalendarDatePicker {
     this.#previous = button('sdp-calendar__nav', '‹')
     this.#monthTitle = create('span', 'sdp-calendar__title')
     this.#next = button('sdp-calendar__nav', '›')
-    this.#previous.addEventListener('click', () => this.navigate(-1))
-    this.#next.addEventListener('click', () => this.navigate(1))
+    this.#previous.addEventListener('click', this.#onPreviousClick)
+    this.#next.addEventListener('click', this.#onNextClick)
     this.#header.append(this.#previous, this.#monthTitle, this.#next)
     this.#popover.append(this.#header)
 
@@ -216,8 +216,8 @@ export class CalendarDatePicker {
     this.#footer = footer
     this.#today = button('sdp-calendar__action', this.#view.todayLabel)
     this.#footerClear = button('sdp-calendar__action', this.#view.clearLabel)
-    this.#today.addEventListener('click', () => this.selectToday())
-    this.#footerClear.addEventListener('click', () => this.clear())
+    this.#today.addEventListener('click', this.#onTodayClick)
+    this.#footerClear.addEventListener('click', this.#onClearClick)
     footer.append(this.#today, this.#footerClear)
     this.#popover.append(footer)
     host.append(root)
@@ -304,6 +304,19 @@ export class CalendarDatePicker {
     if (this.#destroyed) return
     this.#destroyed = true
     this.#detachListeners()
+    this.element.removeEventListener('keydown', this.#onRootKeydown, true)
+    this.element.removeEventListener('focusout', this.#onFocusOut)
+    this.#trigger.removeEventListener('click', this.#onTriggerClick)
+    this.#clear.removeEventListener('click', this.#onClearClick)
+    this.#previous.removeEventListener('click', this.#onPreviousClick)
+    this.#next.removeEventListener('click', this.#onNextClick)
+    this.#today.removeEventListener('click', this.#onTodayClick)
+    this.#footerClear.removeEventListener('click', this.#onClearClick)
+    this.#grid.removeEventListener('click', this.#onGridClick)
+    this.#grid.removeEventListener('keydown', this.#onGridKeydown)
+    this.#grid.removeEventListener('pointerover', this.#onGridPointerOver)
+    this.#grid.removeEventListener('pointerleave', this.#onGridPointerLeave)
+    this.#grid.removeEventListener('focusin', this.#onGridFocusIn)
     this.element.remove()
   }
 
@@ -327,8 +340,14 @@ export class CalendarDatePicker {
     }
   }
 
+  #onTriggerClick = (): void => this.toggle()
+  #onClearClick = (): void => this.clear()
+  #onPreviousClick = (): void => { this.navigate(-1) }
+  #onNextClick = (): void => { this.navigate(1) }
+  #onTodayClick = (): void => this.selectToday()
+
   #onGridClick = (event: MouseEvent): void => {
-    if (this.#view.disabled || this.#view.readOnly) return
+    if (this.#destroyed || this.#view.disabled || this.#view.readOnly) return
     const button = this.#dayButton(event.target)
     if (!button || button.disabled) return
     const day = Number(button.dataset.dayOrdinal)
@@ -345,7 +364,7 @@ export class CalendarDatePicker {
     return button && this.#grid.contains(button) ? button : null
   }
   #onGridPointerOver = (event: PointerEvent): void => {
-    if (!this.#model.isRangePending) return
+    if (this.#destroyed || !this.#model.isRangePending) return
     const button = this.#dayButton(event.target)
     if (!button || button.disabled) return
     const ordinal = Number(button.dataset.dayOrdinal)

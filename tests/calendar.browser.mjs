@@ -248,6 +248,30 @@ try {
     arabicDayDigits: true, arabicYearDigits: true,
   }, 'ISO week labels and compact localized weekday labels remain meaningful')
 
+  const disposed = await page.evaluate(async () => {
+    const { CalendarDatePicker } = await import('./dist/index.js')
+    const host = document.createElement('div')
+    document.body.append(host)
+    let changes = 0
+    const picker = new CalendarDatePicker(host, {
+      inline: true,
+      now: () => new Date(2026, 9, 9, 12),
+      onChange() { changes += 1 },
+    })
+    const oldDay = host.querySelector('.sdp-calendar__day:not(:disabled)')
+    const oldMonthNav = host.querySelector('.sdp-calendar__nav')
+    picker.destroy()
+    picker.destroy()
+    oldDay.click()
+    oldMonthNav.click()
+    const selected = picker.value !== null
+    const remaining = host.childElementCount
+    host.remove()
+    return { changes, selected, remaining }
+  })
+  assert.deepEqual(disposed, { changes: 0, selected: false, remaining: 0 },
+    'detached calendar controls must be inert after destroy()')
+
   await page.evaluate(() => {
     window.__calendarRange.picker.destroy()
     window.__calendarMultiple.picker.destroy()
