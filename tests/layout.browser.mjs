@@ -131,6 +131,53 @@ try {
       metrics.push({ width, theme, ...base, inline, popup, wheel })
     }
   }
+  // Arabic right-to-left calendar: verify that its popover stays within the
+  // viewport and weekday/number labels remain distinct and readable.
+  await page.setViewportSize({ width: 375, height: 720 })
+  await page.goto(process.env.AUDIT_URL ?? 'http://127.0.0.1:4173/index.html', { waitUntil: 'networkidle' })
+  await page.evaluate(async () => {
+    const { CalendarDatePicker } = await import('./dist/index.js')
+    const host = document.createElement('div')
+    host.id = 'rtl-calendar-audit'
+    host.dir = 'rtl'
+    host.style.cssText = 'position: relative; width: 320px; max-width: calc(100vw - 24px); margin: 12px;'
+    document.body.prepend(host)
+    const picker = new CalendarDatePicker(host, {
+      locale: 'ar-EG', mode: 'range', showWeekNumbers: true, clearable: true,
+      now: () => new Date(2026, 9, 9, 12),
+    })
+    window.__rtlAuditPicker = picker
+    picker.open()
+  })
+  await page.locator('#rtl-calendar-audit .sdp-datepicker__popover').waitFor({ state: 'visible' })
+  await page.waitForTimeout(150)
+  const rtl = await page.evaluate(() => {
+    const node = document.querySelector('#rtl-calendar-audit .sdp-datepicker__popover')
+    const rect = node.getBoundingClientRect()
+    const weekHeader = node.querySelector('.sdp-calendar__weekdays')
+    const digits = [...node.querySelectorAll('.sdp-calendar__day')].map(day => day.textContent)
+    return {
+      left: rect.left, right: rect.right, width: rect.width,
+      viewport: innerWidth, documentWidth: document.documentElement.scrollWidth,
+      scrollWidth: node.scrollWidth, clientWidth: node.clientWidth,
+      gridScroll: weekHeader.scrollWidth, gridWidth: weekHeader.clientWidth,
+      hasArabicDigits: digits.includes(new Intl.NumberFormat('ar-EG', {useGrouping: false}).format(9)),
+    }
+  })
+  await page.screenshot({ path: `${output}/375-dark-rtl-calendar.png` })
+  if (rtl.left < -2 || rtl.right > rtl.viewport + 2
+    || rtl.documentWidth > rtl.viewport + 1
+    || rtl.scrollWidth > rtl.clientWidth + 2
+    || rtl.gridScroll > rtl.gridWidth + 2
+    || !rtl.hasArabicDigits) {
+    failures.push(`RTL calendar clipping or localization failure: ${JSON.stringify(rtl)}`)
+  }
+  await page.evaluate(() => {
+    window.__rtlAuditPicker.destroy()
+    document.querySelector('#rtl-calendar-audit').remove()
+  })
+  metrics.push({ rtl })
+
   console.log('LAYOUT_METRICS=' + JSON.stringify(metrics))
   console.log('LAYOUT_FAILURES=' + JSON.stringify(failures))
   assert.deepEqual(failures, [])
