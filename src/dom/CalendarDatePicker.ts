@@ -141,7 +141,7 @@ export class CalendarDatePicker {
   #internalPointerId: number | null = null
   #id: string
   #explicitWeekStart: boolean
-  static #counter = 0
+  static readonly #idKey = Symbol.for('@shelamkoff/date-picker/calendar-instance-id')
 
   constructor(host: HTMLElement, options: CalendarDatePickerOptions = {}) {
     const document = host?.ownerDocument
@@ -153,7 +153,11 @@ export class CalendarDatePicker {
     this.#model = new CalendarSelectionController({
       ...options, weekStartsOn: options.weekStartsOn ?? localeWeekStartsOn(this.#view.locale),
     }, options.value)
-    this.#id = `sdp-calendar-${++CalendarDatePicker.#counter}`
+    const registry = document as Document & { [key: symbol]: number | undefined }
+    const lastId = registry[CalendarDatePicker.#idKey] ?? 0
+    const nextId = Number.isSafeInteger(lastId) && lastId >= 0 ? lastId + 1 : 1
+    registry[CalendarDatePicker.#idKey] = nextId
+    this.#id = `sdp-calendar-${nextId}`
 
     const create = <T extends keyof HTMLElementTagNameMap>(tag: T, className: string): HTMLElementTagNameMap[T] => {
       const element = document.createElement(tag)
@@ -264,6 +268,7 @@ export class CalendarDatePicker {
     this.#open = false
     this.#model.hover(null)
     this.#detachListeners()
+    this.#popover.style.removeProperty('max-height')
     this.#render()
   }
   toggle(): void { this.isOpen ? this.close() : this.open() }
@@ -558,7 +563,9 @@ export class CalendarDatePicker {
     element.textContent = String(day.day)
     const ordinal = civilDayNumber(day.year, day.month, day.day)
     element.dataset.dayOrdinal = String(ordinal)
-    element.disabled = day.disabled || this.#view.disabled || this.#view.readOnly
+    // Read-only dates remain focusable for keyboard navigation and screen readers.
+    element.disabled = day.disabled || this.#view.disabled
+    if (this.#view.readOnly) element.setAttribute('aria-disabled', 'true')
     element.tabIndex = this.#focusedDay === ordinal ? 0 : -1
     element.classList.toggle('is-outside', day.outside)
     element.classList.toggle('is-today', day.today)
@@ -626,6 +633,8 @@ export class CalendarDatePicker {
     this.#popover.style.removeProperty('top')
     this.#popover.style.removeProperty('bottom')
     this.#popover.style.removeProperty('transform')
+    // Recalculate against the intrinsic height, not the previous viewport cap.
+    this.#popover.style.removeProperty('max-height')
     const anchor = this.element.getBoundingClientRect()
     const popover = this.#popover.getBoundingClientRect()
     const placement = resolvePopoverVerticalPlacement({

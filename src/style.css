@@ -385,6 +385,7 @@
   font-weight: 750;
 }
 .sdp-calendar__day:disabled { opacity: 0.24; cursor: not-allowed; }
+.sdp-calendar__day[aria-disabled='true'] { cursor: default; }
 .sdp-calendar__day.is-selected:disabled { opacity: 0.55; }
 .sdp-calendar__day:focus-visible,
 .sdp-calendar__nav:focus-visible,
