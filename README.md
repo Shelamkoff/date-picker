@@ -247,6 +247,10 @@ Calendar options: `mode` (`single`, `range`, `multiple`), inclusive `minDate`/`m
 
 The independent, DOM-free `CalendarSelectionController` is exported from `@shelamkoff/date-picker/core`. It supports the same selection, bounds, range checks and month calculation, with `subscribe()` and defensive snapshots. All modes share calendar civil-date arithmetic; the original wheel controller remains responsible for local times and minute precision.
 
+Calendar `update({ minDate, value })` applies the new constraints and an explicit value atomically: an invalid requested value leaves both the previous value and constraints unchanged. In the headless controller, use `update(options, { value })` for the same transaction. Constraint-only updates can clear previously selected dates if those dates become unavailable; these programmatic changes do not fire the user-facing `onChange` callback. `canSelectToday()` reports whether the Today action is possible under the current bounds, disabled-day predicate, range length, and multiple-selection limit.
+
+The calendar uses locale-native numerals for day, year and ISO week labels, and chooses non-ambiguous compact weekday names where possible. Inline calendars shrink with their containers; for mobile popovers, the actions remain reachable and the time-wheel columns fit in the available width. `destroy()` removes event listeners so previously retained DOM references no longer operate a destroyed widget.
+
 ## Run the demo locally
 
 ```bash

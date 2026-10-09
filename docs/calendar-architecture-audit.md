@@ -39,3 +39,27 @@ The initial implementation used only `Intl.Locale.prototype.weekInfo`; Chromium 
 - Confirmed that a throwing user `disabledDate` callback was swallowed by a blanket `catch` during `CalendarSelectionController.update()`, silently discarding the selection. Constraint invalidation now clears an unavailable selection deliberately, while callback exceptions propagate and restore the previous controller options and value.
 - The demo now exposes calendar and wheel modes on the primary page, keeps example-specific styling in `demo.css`, serves `src/style.css` directly during development, and versions published CSS/JS assets for Pages.
 - Files preserved after cleanup: source, tests, README, CI/Pages workflows, the demo and this audit. There were no tracked build artifacts or obsolete source trees that could safely be removed.
+
+## Re-audit: calendar correctness, i18n, lifecycle and responsive layout
+
+Pass: 2026-10-09. Target branch: `master`. Changes are intentionally confined to the new calendar and its tests/documentation; existing wheel behavior is preserved.
+
+### Confirmed defects fixed
+
+- **Extremal dates:** DOM selection previously synthesized a local noon to build a Date. The maximum ECMAScript date (+275760-09-13T00:00:00.000Z in UTC) is representable only at 00:00, so an enabled calendar cell could reject a click. DOM selection now uses the same `dayInterval` primitive as the headless model. Node and Chromium regressions cover the upper boundary.
+- **Atomic configuration:** `CalendarDatePicker.update({ minDate, value })` could apply new bounds, clear the old value, and then throw on an invalid explicit value. The controller now validates proposed bounds and explicit value as one transaction, restoring previous configuration on failure.
+- **Today action:** Previously enabled even when today was disallowed or could not be added to a full multiple selection, or could not complete the pending range. Its disabled state now accounts for all current selection rules.
+- **Empty actions:** The footer is hidden when both Today and Clear controls are disabled by options (`showToday: false, clearable: false`).
+- **ISO week numbering:** For a Sunday-start calendar, calculating the week from Sunday's ISO week assigned the wrong label to most days in the row. ISO week labels now derive from the row's Thursday; accessible labels include the week number.
+- **Ambiguous weekday abbreviations:** Taking the first two Unicode code points made every Arabic weekday appear as the identical "ال". Compact labels now choose between short-prefix and CLDR narrow labels based on distinctness.
+- **Locale numerals:** Day, year and week numbers were hardcoded as Latin digits even for locales using other numbering systems. These now use the package's cached locale-aware number formatter.
+- **Lifecycle:** `CalendarDatePicker.destroy()` detached the element but left its internal DOM listeners active. Retained detached controls could still select dates or throw when clicked. Destroy now unregisters listeners; a browser test dispatches clicks against retained elements.
+- **Prior layout pass:** Mobile document overflow, constrained popovers, sticky footer visibility, inline shrinkage, themed text contrast and narrow wheel columns remain protected by the responsive Chromium screenshot/geometry suite.
+
+### Verification and limits
+
+- Unit tests run under Node.js 20 and 22 in UTC, America/New_York, Australia/Lord_Howe, Pacific/Apia and Europe/Paris.
+- Chromium interaction checks cover single, inclusive range, multiple, read-only navigation, pending range hover, extreme representable dates, atomic updates, Today availability, keyboard, locale week starts, ISO weeks, Arabic compact labels and lifecycle teardown.
+- Responsive Chromium screenshots check widths 320, 375, 768, 900, 1280 px in both themes; a narrow Arabic RTL calendar scenario has been added.
+- There are no tracked generated build directories or obsolete copies requiring deletion.
+- Not established by these tests: full screen-reader conformance, Firefox/WebKit parity, 200–400% zoom, all possible hostile overflow-ancestor layouts, focus traps/portals, text input, presets, multi-month view or selectable timezones. These remain separate acceptance/release criteria, not confirmed fixes.
