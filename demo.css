@@ -34,3 +34,10 @@
     overflow: auto;
   }
 }
+
+/* Intrinsic width of a horizontally scrollable date grid must not expand
+   its host inside the demo's responsive CSS grid. */
+.calendar-live > * { min-width: 0; max-width: 100%; }
+@media (max-width: 880px) {
+  .calendar-live { grid-template-columns: minmax(0, 1fr); }
+}

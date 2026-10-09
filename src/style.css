@@ -8,6 +8,8 @@
 .sdp-datepicker {
   position: relative;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   color: var(--sdp-text, #f4f5f5);
   font-family: var(--sdp-font, 'Onest', 'Segoe UI', sans-serif);
   line-height: 1.45;
@@ -297,9 +299,10 @@
   position: static;
   width: 100%;
   min-width: 0;
-  max-width: 25rem;
+  max-width: min(25rem, 100%);
   max-height: none;
-  overflow: visible;
+  overflow-x: clip;
+  overflow-y: visible;
   border-radius: var(--sdp-radius-card, 0.625rem);
   box-shadow: none;
   transform: none !important;
@@ -472,6 +475,7 @@
    labels or two-digit dates overlap or widen the whole document. */
 @media (max-width: 480px) {
   .sdp-calendar__grid {
+    width: 100%;
     max-width: 100%;
     min-width: 0;
     overflow-x: auto;
