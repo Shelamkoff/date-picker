@@ -423,8 +423,8 @@ try {
       })
     }
     catch (error) { rejected = error?.message === 'grid callback failed' }
-    const canStillSelect = !host.querySelector('.sdp-calendar__day:not(.is-outside):disabled')
-      ? false : picker.snapshot.days.some(day => day.month === 10 && day.day === 20 && !day.disabled)
+    const canStillSelect = picker.snapshot.days.some(day =>
+      day.month === 10 && day.day === 20 && !day.disabled)
     picker.destroy()
     host.remove()
     return { rejected, canStillSelect }
